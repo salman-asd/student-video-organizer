@@ -1,0 +1,213 @@
+import type { Timestamp } from "firebase/firestore";
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * DATA MODEL OVERVIEW
+ * ─────────────────────────────────────────────────────────────────────────
+ * Shared library content (created once, visible to everyone):
+ *   playlists/{playlistId}
+ *   playlists/{playlistId}/videos/{videoId}   (order + shared metadata)
+ *   categories/{categoryId}
+ *   tags/{tagId}
+ *
+ * Personal, per-user state (never duplicates the video itself):
+ *   users/{uid}                                        profile + role
+ *   users/{uid}/videoStates/{videoId}                  progress, favorite,
+ *                                                       watchLater, priority
+ *   users/{uid}/notes/{videoId}                         private notes
+ *   users/{uid}/summaries/{videoId}                     personal summary
+ *   users/{uid}/bookmarks/{videoId}/items/{bookmarkId}   timestamp bookmarks
+ *   users/{uid}/favoritePlaylists/{playlistId}
+ *   users/{uid}/goals/{goalId}
+ *
+ * A single global "videos" collection group is intentionally avoided —
+ * videos live as a subcollection of the playlist that owns them, which keeps
+ * ordering (position) co-located with the shared content and avoids
+ * duplicating a video document per student (see README > Data Model).
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+
+export type Role = "admin" | "student";
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  role: Role;
+  status: "active" | "disabled";
+  createdAt: Timestamp | null;
+  lastActiveAt: Timestamp | null;
+  /** Denormalized, cheap-to-read counters updated by client writes at
+   *  meaningful events only (not on every keystroke) so the admin table
+   *  can render without fanning out reads across every student. */
+  stats?: UserStatsSnapshot;
+}
+
+export interface UserStatsSnapshot {
+  totalVideos: number;
+  completed: number;
+  inProgress: number;
+  notStarted: number;
+  favorites: number;
+  watchLater: number;
+  priority: number;
+  totalWatchTimeSeconds: number;
+  currentStreakDays: number;
+  lastStreakDate: string | null; // yyyy-mm-dd, used to compute streak cheaply
+  updatedAt: Timestamp | null;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  color?: string;
+  createdBy: string;
+}
+
+export interface Tag {
+  id: string;
+  name: string;
+  createdBy: string;
+}
+
+export type PlaylistVisibility = "shared" | "archived";
+
+export interface Playlist {
+  id: string;
+  title: string;
+  description?: string;
+  categoryId?: string | null;
+  tagIds?: string[];
+  coverThumbnailUrl?: string;
+  visibility: PlaylistVisibility;
+  videoCount: number;
+  source: "manual" | "youtube-import" | "json-import";
+  sourceUrl?: string;
+  createdBy: string;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+/** Shared video metadata, stored under playlists/{playlistId}/videos/{videoId}. */
+export interface Video {
+  id: string;
+  playlistId: string;
+  title: string;
+  videoUrl: string;
+  youtubeVideoId?: string | null;
+  thumbnailUrl: string;
+  durationSeconds?: number;
+  categoryId?: string | null;
+  tagIds?: string[];
+  description?: string;
+  videoNo?: number | null;
+  lessonNo?: number | null;
+  partNo?: number | null;
+  pageNo?: number | null;
+  /** Position within the playlist; drives default ordering + drag/drop reorder. */
+  order: number;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+export type WatchStatus = "not_started" | "in_progress" | "completed";
+export type PriorityLevel = "high" | "medium" | "low" | null;
+
+/** Per-user, per-video personal state. users/{uid}/videoStates/{videoId} */
+export interface UserVideoState {
+  videoId: string;
+  playlistId: string;
+  status: WatchStatus;
+  watchedPercentage: number; // 0-100
+  currentPositionSeconds: number;
+  isFavorite: boolean;
+  isWatchLater: boolean;
+  priority: PriorityLevel;
+  /** Manual order used within Watch Later / Priority lists (drag & drop). */
+  watchLaterOrder?: number;
+  priorityOrder?: number;
+  lastWatchedAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+export interface VideoNote {
+  videoId: string;
+  content: string;
+  updatedAt: Timestamp | null;
+}
+
+export interface VideoSummary {
+  videoId: string;
+  content: string;
+  updatedAt: Timestamp | null;
+}
+
+export interface Bookmark {
+  id: string;
+  videoId: string;
+  timestampSeconds: number;
+  label: string;
+  createdAt: Timestamp | null;
+}
+
+export interface Goal {
+  id: string;
+  title: string;
+  targetDate?: string | null;
+  completed: boolean;
+  createdAt: Timestamp | null;
+}
+
+/** Convenience shape combining shared Video + the current user's state,
+ *  used throughout the UI (home grid, lists, video page). */
+export interface VideoWithState extends Video {
+  state: UserVideoState | null;
+  playlistTitle?: string;
+}
+
+export interface HomeFilters {
+  playlistId?: string | null;
+  categoryId?: string | null;
+  tagId?: string | null;
+  status?: WatchStatus | null;
+  favoriteOnly?: boolean;
+  watchLaterOnly?: boolean;
+  priority?: PriorityLevel;
+  query?: string;
+}
+
+export type SortOption =
+  | "recently-added"
+  | "recently-watched"
+  | "title-asc"
+  | "title-desc"
+  | "progress"
+  | "duration"
+  | "priority"
+  | "favorites"
+  | "custom-order"
+  | "lesson-no"
+  | "part-no"
+  | "page-no";
+
+export const SORT_LABELS: Record<SortOption, string> = {
+  "recently-added": "Recently Added",
+  "recently-watched": "Recently Watched",
+  "title-asc": "Title A–Z",
+  "title-desc": "Title Z–A",
+  progress: "Progress",
+  duration: "Duration",
+  priority: "Priority",
+  favorites: "Favorites",
+  "custom-order": "Custom Order",
+  "lesson-no": "Lesson Number",
+  "part-no": "Part Number",
+  "page-no": "Page Number",
+};
+
+export const PRIORITY_ORDER: Record<Exclude<PriorityLevel, null>, number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};

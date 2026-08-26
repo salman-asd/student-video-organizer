@@ -1,0 +1,84 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Admin status is stored on the user's own profile document, not on a
+    // custom claim, to keep everything on the free Spark plan (no Cloud
+    // Functions needed to mint custom claims). The profile doc is only
+    // writable by admins (see /users rules below), so a student cannot
+    // grant themselves the admin role.
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isActive() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
+    }
+
+    // ── Users & personal learning data ─────────────────────────────────
+    match /users/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      // Users may update their own profile EXCEPT role/status (privilege
+      // escalation guard). Admins may update anything on any profile.
+      allow create: if isSelf(uid);
+      allow update: if isAdmin() ||
+        (isSelf(uid) &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.status == resource.data.status);
+      allow delete: if isAdmin();
+
+      match /videoStates/{videoId} {
+        allow read, write: if isSelf(uid) || isAdmin();
+      }
+      match /notes/{videoId} {
+        allow read, write: if isSelf(uid) || isAdmin();
+      }
+      match /summaries/{videoId} {
+        allow read, write: if isSelf(uid) || isAdmin();
+      }
+      match /bookmarks/{videoId}/items/{bookmarkId} {
+        allow read, write: if isSelf(uid) || isAdmin();
+      }
+      match /favoritePlaylists/{playlistId} {
+        allow read, write: if isSelf(uid) || isAdmin();
+      }
+      match /goals/{goalId} {
+        allow read, write: if isSelf(uid) || isAdmin();
+      }
+    }
+
+    // ── Shared learning library ─────────────────────────────────────────
+    // Readable by any signed-in, active user. Writable only by admins.
+    match /playlists/{playlistId} {
+      allow read: if isSignedIn() && isActive();
+      allow write: if isAdmin();
+
+      match /videos/{videoId} {
+        allow read: if isSignedIn() && isActive();
+        allow write: if isAdmin();
+      }
+    }
+
+    match /categories/{categoryId} {
+      allow read: if isSignedIn() && isActive();
+      allow write: if isAdmin();
+    }
+
+    match /tags/{tagId} {
+      allow read: if isSignedIn() && isActive();
+      allow write: if isAdmin();
+    }
+  }
+}

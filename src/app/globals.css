@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius: 0.75rem;
+
+  /* Light mode — warm paper + deep pine ink */
+  --background: 40 20% 97%;
+  --foreground: 160 30% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 160 30% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 160 30% 10%;
+
+  --primary: 160 45% 20%;          /* deep pine green */
+  --primary-foreground: 40 20% 97%;
+
+  --secondary: 40 15% 92%;
+  --secondary-foreground: 160 30% 12%;
+
+  --accent: 38 68% 55%;            /* brass / gold */
+  --accent-foreground: 160 40% 10%;
+
+  --muted: 40 12% 92%;
+  --muted-foreground: 160 10% 40%;
+
+  --destructive: 8 55% 48%;
+  --destructive-foreground: 40 20% 97%;
+
+  --success: 152 40% 33%;
+  --success-foreground: 40 20% 97%;
+
+  --priority-high: 8 62% 50%;
+  --priority-medium: 38 68% 52%;
+  --priority-low: 152 35% 38%;
+
+  --border: 40 15% 87%;
+  --input: 40 15% 87%;
+  --ring: 160 45% 30%;
+}
+
+.dark {
+  --background: 160 24% 7%;
+  --foreground: 40 20% 94%;
+  --card: 160 20% 10%;
+  --card-foreground: 40 20% 94%;
+  --popover: 160 20% 9%;
+  --popover-foreground: 40 20% 94%;
+
+  --primary: 150 35% 62%;
+  --primary-foreground: 160 30% 8%;
+
+  --secondary: 160 15% 15%;
+  --secondary-foreground: 40 20% 94%;
+
+  --accent: 38 72% 58%;
+  --accent-foreground: 160 30% 8%;
+
+  --muted: 160 12% 15%;
+  --muted-foreground: 40 10% 65%;
+
+  --destructive: 8 60% 55%;
+  --destructive-foreground: 40 20% 96%;
+
+  --success: 152 35% 48%;
+  --success-foreground: 160 30% 8%;
+
+  --priority-high: 8 65% 58%;
+  --priority-medium: 38 72% 60%;
+  --priority-low: 152 40% 48%;
+
+  --border: 160 15% 18%;
+  --input: 160 15% 18%;
+  --ring: 150 35% 55%;
+}
+
+* { @apply border-border; }
+
+body {
+  @apply bg-background text-foreground font-sans antialiased;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+.font-display { font-family: var(--font-display); }
+.font-mono { font-family: var(--font-mono); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Netlify's Next.js runtime (installed via the plugin above) handles SSR,
+# API routes (used by the YouTube import feature), and static assets
+# automatically on Netlify's free tier — no extra redirects/functions config
+# needed for a standard Next.js App Router project.
