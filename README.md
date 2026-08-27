@@ -14,7 +14,7 @@ to **Netlify's free hosting**.
 
 - Email/password auth (login, register, logout, password reset)
 - Two roles: `admin` and `student`, enforced by Firestore Security Rules
-- Shared library (playlists → videos) managed by admins, visible to everyone
+- User-owned library (playlists → videos) private to each creator; admins can manage all content
 - Personal-per-user state: progress, favorites, watch later, priority, notes,
   summaries, timestamp bookmarks, goals — never duplicated per video
 - Student pages: Home (filters + sort + search), Continue Learning, Playlists,
@@ -68,7 +68,7 @@ netlify.toml
 ## 4. Data model (why it's shaped this way)
 
 ```
-SHARED (admin-managed, same for everyone)
+USER-OWNED (private to the creator; admins can manage all)
   playlists/{playlistId}
   playlists/{playlistId}/videos/{videoId}     ← order lives here
 
@@ -150,9 +150,9 @@ npm run dev
 ```
 
 Visit `http://localhost:3000`, register an account with your seed-admin
-email, and you'll land in the Admin Dashboard. Use **Admin → Playlists → New
-Playlist** (or **Import JSON** / **Import YouTube Playlist**) to start
-building the shared library.
+email, and you'll land in the Admin Dashboard. Students can use **Playlists →
+New Playlist** to create private content. Admins can use **Admin → Playlists**
+(or **Import JSON** / **Import YouTube Playlist**) to manage any user's content.
 
 ## 8. Deploying to Netlify (free tier)
 

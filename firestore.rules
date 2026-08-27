@@ -57,6 +57,18 @@ service cloud.firestore {
       match /goals/{goalId} {
         allow read, write: if isSelf(uid) || isAdmin();
       }
+
+      // Personal playlists/videos the student creates themselves. Private
+      // by path: only the owner and admins can ever reach this subtree —
+      // no other student's rules path grants access to it. Named distinctly
+      // from the top-level /playlists collection (the shared library) to
+      // avoid any confusion between the two content tiers.
+      match /personalPlaylists/{playlistId} {
+        allow read, write: if isSelf(uid) || isAdmin();
+        match /videos/{videoId} {
+          allow read, write: if isSelf(uid) || isAdmin();
+        }
+      }
     }
 
     // ── Shared learning library ─────────────────────────────────────────

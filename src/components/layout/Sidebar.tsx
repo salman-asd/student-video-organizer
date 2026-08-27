@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ListVideo, Clock, Star, Flag, PlayCircle, BookOpen,
-  ShieldCheck, Users, FolderKanban, Tags, FileJson, Youtube, Target, X,
+  ShieldCheck, Users, FolderKanban, Tags, FileJson, Youtube, Target, X, Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -14,6 +14,7 @@ const studentNav = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
   { href: "/continue-learning", label: "Continue Learning", icon: PlayCircle },
   { href: "/playlists", label: "Playlists", icon: ListVideo },
+  { href: "/my-playlists", label: "My Playlists", icon: Lock },
   { href: "/watch-later", label: "Watch Later", icon: Clock },
   { href: "/priority", label: "Priority", icon: Flag },
   { href: "/favorites", label: "Favorites", icon: Star },

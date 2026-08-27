@@ -84,6 +84,9 @@ export interface Playlist {
   source: "manual" | "youtube-import" | "json-import";
   sourceUrl?: string;
   createdBy: string;
+  /** Set only on personal playlists (users/{ownerUid}/playlists/...).
+   *  Absent/undefined for shared library playlists. */
+  ownerUid?: string;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
 }
@@ -149,6 +152,55 @@ export interface Bookmark {
   timestampSeconds: number;
   label: string;
   createdAt: Timestamp | null;
+}
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * PERSONAL PLAYLISTS (student-owned content — the third content tier)
+ * ─────────────────────────────────────────────────────────────────────────
+ * Unlike the shared library (admin-authored, visible to everyone) or the
+ * per-video "state" documents (personal state layered on TOP of shared
+ * videos), a personal playlist is content a student creates and owns
+ * outright: users/{uid}/personalPlaylists/{playlistId}/videos/{videoId}.
+ *
+ * It's invisible to every other student and only readable/writable by the
+ * owner and admins (see firestore.rules). Because nobody but the owner ever
+ * touches it, progress/favorite/watchLater/priority live directly on the
+ * video document instead of a separate videoStates collection — there's no
+ * "shared metadata vs personal state" split to make here, since it's all
+ * personal already.
+ * ─────────────────────────────────────────────────────────────────────────
+ */
+export interface PersonalPlaylist {
+  id: string;
+  ownerId: string;
+  title: string;
+  description?: string;
+  videoCount: number;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+export interface PersonalVideo {
+  id: string;
+  playlistId: string;
+  ownerId: string;
+  title: string;
+  videoUrl: string;
+  youtubeVideoId?: string | null;
+  thumbnailUrl: string;
+  durationSeconds?: number;
+  order: number;
+  status: WatchStatus;
+  watchedPercentage: number;
+  currentPositionSeconds: number;
+  isFavorite: boolean;
+  isWatchLater: boolean;
+  priority: PriorityLevel;
+  lastWatchedAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
 }
 
 export interface Goal {

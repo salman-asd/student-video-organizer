@@ -16,14 +16,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Textarea } from "@/components/ui/textarea";
 import { getUserProfile, recomputeUserStats, setUserStatus } from "@/lib/firestore/users";
 import { listPlaylists, listVideos } from "@/lib/firestore/playlists";
+import { listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
 import {
   getAllUserVideoStates, setPriority, setWatchedStatus, toggleFavorite, toggleWatchLater,
 } from "@/lib/firestore/userVideoState";
 import { getNote, getSummary } from "@/lib/firestore/notes";
 import { listGoals, toggleGoal } from "@/lib/firestore/goals";
 import { formatWatchTime } from "@/lib/utils";
-import type { Goal, Playlist, UserProfile, VideoWithState } from "@/types";
-import { ArrowLeft, Flame, ShieldOff, ShieldCheck as ShieldCheckIcon, StickyNote } from "lucide-react";
+import type { Goal, PersonalPlaylist, Playlist, UserProfile, VideoWithState } from "@/types";
+import { ArrowLeft, Flame, ShieldOff, ShieldCheck as ShieldCheckIcon, StickyNote, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminUserDetailPage() {
@@ -41,6 +42,7 @@ function AdminUserDetailContent() {
   const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
   const [videos, setVideos] = React.useState<VideoWithState[]>([]);
   const [goals, setGoals] = React.useState<Goal[]>([]);
+  const [personalPlaylists, setPersonalPlaylists] = React.useState<PersonalPlaylist[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [noteDialogVideo, setNoteDialogVideo] = React.useState<VideoWithState | null>(null);
   const [noteContent, setNoteContent] = React.useState("");
@@ -48,15 +50,17 @@ function AdminUserDetailContent() {
 
   const load = React.useCallback(async () => {
     setLoading(true);
-    const [p, pls, states, gs] = await Promise.all([
+    const [p, pls, states, gs, personalPls] = await Promise.all([
       getUserProfile(userId),
       listPlaylists(false),
       getAllUserVideoStates(userId),
       listGoals(userId),
+      listPersonalPlaylists(userId),
     ]);
     setProfile(p);
     setPlaylists(pls);
     setGoals(gs);
+    setPersonalPlaylists(personalPls);
     const allVideos: VideoWithState[] = [];
     for (const pl of pls) {
       const vids = await listVideos(pl.id);
@@ -147,6 +151,7 @@ function AdminUserDetailContent() {
         <Tabs defaultValue="playlists">
           <TabsList className="flex-wrap">
             <TabsTrigger value="playlists">Playlists</TabsTrigger>
+            <TabsTrigger value="personal">Personal Playlists</TabsTrigger>
             <TabsTrigger value="watchlater">Watch Later</TabsTrigger>
             <TabsTrigger value="priority">Priority</TabsTrigger>
             <TabsTrigger value="favorites">Favorites</TabsTrigger>
@@ -173,6 +178,29 @@ function AdminUserDetailContent() {
                 </Link>
               );
             })}
+          </TabsContent>
+
+          <TabsContent value="personal" className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Playlists this student created for themselves — private to them, but you can inspect and manage them here.
+            </p>
+            {personalPlaylists.length === 0 && <EmptyRow text="This student hasn't created any personal playlists." />}
+            {personalPlaylists.map((p) => (
+              <Link key={p.id} href={`/my-playlists/${p.id}?owner=${userId}`}>
+                <Card className="transition-colors hover:bg-secondary/40">
+                  <CardContent className="flex items-center justify-between p-3">
+                    <div className="flex items-center gap-2">
+                      <Lock className="h-4 w-4 text-muted-foreground" />
+                      <div>
+                        <p className="font-medium">{p.title}</p>
+                        {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
+                      </div>
+                    </div>
+                    <Badge variant="secondary">{p.videoCount} videos</Badge>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
           </TabsContent>
 
           <TabsContent value="watchlater" className="space-y-2">
