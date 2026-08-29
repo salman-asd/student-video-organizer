@@ -16,10 +16,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createPersonalPlaylist, listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
-import type { PersonalPlaylist } from "@/types";
+import type { PersonalPlaylist, PersonalPlaylistVisibility } from "@/types";
 import { Lock, Plus, ListVideo } from "lucide-react";
 import { toast } from "sonner";
+
+const PERSONAL_PLAYLIST_VISIBILITY_LABELS: Record<PersonalPlaylistVisibility, string> = {
+  private: "Private",
+  link: "Anyone with link",
+  public: "Public",
+};
 
 export default function MyPlaylistsPage() {
   return (
@@ -42,6 +49,7 @@ function MyPlaylistsContent() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
+  const [visibility, setVisibility] = React.useState<PersonalPlaylistVisibility>("private");
 
   const load = React.useCallback(async () => {
     if (!ownerId) return;
@@ -54,8 +62,8 @@ function MyPlaylistsContent() {
 
   async function handleCreate() {
     if (!ownerId || !title.trim()) return;
-    await createPersonalPlaylist(ownerId, title.trim(), description.trim());
-    setTitle(""); setDescription(""); setDialogOpen(false);
+    await createPersonalPlaylist(ownerId, title.trim(), description.trim(), visibility);
+    setTitle(""); setDescription(""); setVisibility("private"); setDialogOpen(false);
     toast.success("Playlist created");
     load();
   }
@@ -98,7 +106,10 @@ function MyPlaylistsContent() {
                       <p className="truncate font-medium">{p.title}</p>
                     </div>
                     {p.description && <p className="line-clamp-2 text-sm text-muted-foreground">{p.description}</p>}
-                    <Badge variant="secondary">{p.videoCount} videos</Badge>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <Badge variant="secondary">{p.videoCount} videos</Badge>
+                      <Badge variant="outline">{PERSONAL_PLAYLIST_VISIBILITY_LABELS[p.visibility] || "Private"}</Badge>
+                    </div>
                   </CardContent>
                 </Card>
               </Link>
@@ -118,6 +129,19 @@ function MyPlaylistsContent() {
             <div className="space-y-1.5">
               <Label>Description (optional)</Label>
               <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Visibility</Label>
+              <Select value={visibility} onValueChange={(value) => setVisibility(value as PersonalPlaylistVisibility)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Visibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(PERSONAL_PLAYLIST_VISIBILITY_LABELS) as PersonalPlaylistVisibility[]).map((value) => (
+                    <SelectItem key={value} value={value}>{PERSONAL_PLAYLIST_VISIBILITY_LABELS[value]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>

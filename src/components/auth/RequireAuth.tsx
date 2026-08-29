@@ -13,7 +13,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
 
-  if (loading || !user) {
+  if (loading || !user || !profile) {
     return (
       <div className="flex min-h-screen items-center justify-center p-8">
         <div className="w-full max-w-sm space-y-3">
@@ -25,7 +25,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (profile?.status === "disabled") {
+  if (profile.status === "disabled") {
     return (
       <div className="flex min-h-screen items-center justify-center p-8 text-center">
         <div>
@@ -42,14 +42,25 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export function RequireAdmin({ children }: { children: React.ReactNode }) {
-  const { profile, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const router = useRouter();
 
   React.useEffect(() => {
-    if (!loading && profile && profile.role !== "admin") router.replace("/dashboard");
-  }, [loading, profile, router]);
+    if (!loading && !user) router.replace("/login");
+    if (!loading && user && (!profile || profile.status === "disabled" || profile.role !== "admin")) {
+      router.replace("/dashboard");
+    }
+  }, [loading, user, profile, router]);
 
-  if (loading || !profile || profile.role !== "admin") {
+  if (loading || !user || !profile) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-8">
+        <Skeleton className="h-8 w-64" />
+      </div>
+    );
+  }
+
+  if (profile.status === "disabled" || profile.role !== "admin") {
     return (
       <div className="flex min-h-screen items-center justify-center p-8">
         <Skeleton className="h-8 w-64" />

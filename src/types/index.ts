@@ -1,4 +1,4 @@
-import type { Timestamp } from "firebase/firestore";
+import type { FieldValue, Timestamp } from "firebase/firestore";
 
 /**
  * ─────────────────────────────────────────────────────────────────────────
@@ -28,6 +28,75 @@ import type { Timestamp } from "firebase/firestore";
  */
 
 export type Role = "admin" | "student";
+export type VideoPlatform = "youtube" | "youtube-shorts" | "facebook" | "vimeo" | "generic";
+export type ShareVisibility = "private" | "unlisted" | "public";
+
+export const VIDEO_PLATFORMS: VideoPlatform[] = [
+  "youtube",
+  "youtube-shorts",
+  "facebook",
+  "vimeo",
+  "generic",
+];
+
+export const SHARE_VISIBILITIES: ShareVisibility[] = ["private", "unlisted", "public"];
+
+export interface VideoTag {
+  id: string;
+  videoId: string;
+  tagId: string;
+  createdAt: Timestamp | null;
+}
+
+export type ShareEntityType = "video" | "playlist";
+
+export type FirestoreTimeValue = Timestamp | FieldValue | null;
+
+export interface ShareRecord {
+  id: string;
+  ownerUid: string;
+  entityType: ShareEntityType;
+  entityId: string;
+  visibility: ShareVisibility;
+  shareToken: string;
+  title: string;
+  description?: string | null;
+  thumbnailUrl?: string | null;
+  videoUrl?: string | null;
+  platform?: VideoPlatform | null;
+  creatorName?: string | null;
+  videos?: Array<{
+    id: string;
+    title: string;
+    videoUrl: string;
+    thumbnailUrl?: string | null;
+    durationSeconds?: number | null;
+    platform?: VideoPlatform;
+  }>;
+  revokedAt: FirestoreTimeValue;
+  createdAt: FirestoreTimeValue;
+  updatedAt: FirestoreTimeValue;
+}
+
+export interface PlaylistShare {
+  id: string;
+  playlistId: string;
+  visibility: ShareVisibility;
+  shareToken?: string | null;
+  createdBy: string;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
+export interface WatchProgress {
+  userId: string;
+  videoId: string;
+  playlistId: string;
+  currentSeconds: number;
+  percentComplete: number;
+  lastWatchedAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
 
 export interface UserProfile {
   uid: string;
@@ -100,6 +169,8 @@ export interface Video {
   youtubeVideoId?: string | null;
   thumbnailUrl: string;
   durationSeconds?: number;
+  creatorName?: string | null;
+  platform?: VideoPlatform;
   categoryId?: string | null;
   tagIds?: string[];
   description?: string;
@@ -171,11 +242,26 @@ export interface Bookmark {
  * personal already.
  * ─────────────────────────────────────────────────────────────────────────
  */
+export type PersonalPlaylistVisibility = "private" | "link" | "public";
+export type PersonalPlaylistSortMode =
+  | "custom"
+  | "newest"
+  | "oldest"
+  | "title-asc"
+  | "title-desc"
+  | "watched-first"
+  | "unwatched-first"
+  | "priority"
+  | "duration";
+
 export interface PersonalPlaylist {
   id: string;
   ownerId: string;
   title: string;
   description?: string;
+  visibility: PersonalPlaylistVisibility;
+  sortMode?: PersonalPlaylistSortMode;
+  sortOrder?: string[];
   videoCount: number;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
@@ -190,6 +276,10 @@ export interface PersonalVideo {
   youtubeVideoId?: string | null;
   thumbnailUrl: string;
   durationSeconds?: number;
+  description?: string | null;
+  creator?: string | null;
+  publishedAt?: string | null;
+  platform?: VideoPlatform;
   order: number;
   status: WatchStatus;
   watchedPercentage: number;
@@ -197,6 +287,9 @@ export interface PersonalVideo {
   isFavorite: boolean;
   isWatchLater: boolean;
   priority: PriorityLevel;
+  /** Manual order used within Watch Later / Priority lists (drag & drop), mirrors UserVideoState. */
+  watchLaterOrder?: number | null;
+  priorityOrder?: number | null;
   lastWatchedAt: Timestamp | null;
   completedAt: Timestamp | null;
   createdAt: Timestamp | null;
@@ -216,12 +309,19 @@ export interface Goal {
 export interface VideoWithState extends Video {
   state: UserVideoState | null;
   playlistTitle?: string;
+  /** Which content tier this video came from — the shared/admin library, or
+   *  the signed-in user's own "My Playlists". Cross-cutting personal views
+   *  (Watch Later, Favorites, Priority, Continue Watching, Dashboard) merge
+   *  both tiers, and this tag tells write-handlers which Firestore path to
+   *  update. Undefined is treated as "shared" for backward compatibility. */
+  source?: "shared" | "personal";
 }
 
 export interface HomeFilters {
   playlistId?: string | null;
   categoryId?: string | null;
   tagId?: string | null;
+  platform?: VideoPlatform | null;
   status?: WatchStatus | null;
   favoriteOnly?: boolean;
   watchLaterOnly?: boolean;

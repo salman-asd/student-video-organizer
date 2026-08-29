@@ -121,10 +121,10 @@ function AdminDashboardContent() {
         </Card>
 
         {!loading && filtered.length === 0 && (
-          <p className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">No students match "{query}".</p>
+          <p className="rounded-lg border border-dashed border-border py-10 text-center text-sm text-muted-foreground">No students match &quot;{query}&quot;.</p>
         )}
         {!loading && users.some((u) => !u.stats) && (
-          <p className="text-xs text-muted-foreground">Some students haven't had their stats computed yet — click "Refresh stats" above.</p>
+          <p className="text-xs text-muted-foreground">Some students haven&apos;t had their stats computed yet — click &quot;Refresh stats&quot; above.</p>
         )}
       </div>
     </AppShell>

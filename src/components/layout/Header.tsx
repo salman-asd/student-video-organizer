@@ -34,7 +34,7 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
       </Button>
 
       <form
-        className="relative flex-1 max-w-md"
+        className="relative flex-1 min-w-0 max-w-md"
         onSubmit={(e) => {
           e.preventDefault();
           onSearch?.(query);
@@ -48,11 +48,11 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
             onSearch?.(e.target.value);
           }}
           placeholder="Search videos, playlists, tags, notes…"
-          className="pl-8"
+          className="w-full pl-8"
         />
       </form>
 
-      <div className="ml-auto flex items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {isAdmin && (
           <span className="hidden items-center gap-1 rounded-full bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent sm:flex">
             <ShieldCheck className="h-3.5 w-3.5" /> Admin

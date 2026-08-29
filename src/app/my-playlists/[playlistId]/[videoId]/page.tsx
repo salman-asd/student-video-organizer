@@ -10,6 +10,7 @@ import { VideoActionsBar } from "@/components/video/VideoActionsBar";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Lock } from "lucide-react";
@@ -17,9 +18,11 @@ import {
   getPersonalVideo, listPersonalVideos, savePersonalVideoProgress, setPersonalVideoPriority,
   setPersonalVideoWatched, togglePersonalVideoFavorite, togglePersonalVideoWatchLater,
 } from "@/lib/firestore/personalPlaylists";
-import { getNote, getSummary, saveNote, saveSummary } from "@/lib/firestore/notes";
+import { deleteNote, getNote, getSummary, saveNote, saveSummary } from "@/lib/firestore/notes";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { formatDuration } from "@/lib/utils";
+import { calculateProgress, shouldPersistProgress } from "@/lib/watchProgress";
+import { getExternalWatchAction } from "@/lib/video-platforms";
 import type { PersonalVideo, PriorityLevel } from "@/types";
 import { toast } from "sonner";
 
@@ -49,6 +52,13 @@ function PersonalVideoContent() {
   const [note, setNote] = React.useState("");
   const [summary, setSummary] = React.useState("");
   const [loading, setLoading] = React.useState(true);
+  const lastProgressSaveRef = React.useRef(0);
+  const previousProgressRef = React.useRef(0);
+
+  React.useEffect(() => {
+    previousProgressRef.current = video?.currentPositionSeconds || 0;
+    lastProgressSaveRef.current = Date.now();
+  }, [video?.currentPositionSeconds, videoId]);
 
   const load = React.useCallback(async () => {
     if (!ownerId) return;
@@ -68,29 +78,62 @@ function PersonalVideoContent() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  const debouncedSaveNote = useDebouncedCallback((val: string) => {
-    if (ownerId) saveNote(ownerId, noteKey(videoId), val);
-  }, 900);
   const debouncedSaveSummary = useDebouncedCallback((val: string) => {
     if (ownerId) saveSummary(ownerId, noteKey(videoId), val);
   }, 900);
+
+  async function handleSaveNote() {
+    if (!ownerId) return;
+    await saveNote(ownerId, noteKey(videoId), note);
+    toast.success(note.trim() ? "Note saved" : "Note cleared");
+  }
+
+  async function handleDeleteNote() {
+    if (!ownerId) return;
+    await deleteNote(ownerId, noteKey(videoId));
+    setNote("");
+    toast.success("Note deleted");
+  }
 
   const index = playlistVideos.findIndex((v) => v.id === videoId);
   const prev = index > 0 ? playlistVideos[index - 1] : null;
   const next = index >= 0 && index < playlistVideos.length - 1 ? playlistVideos[index + 1] : null;
   const suffix = isViewingOther ? `?owner=${ownerId}` : "";
+  const externalWatchAction = React.useMemo(() => getExternalWatchAction(video?.videoUrl || ""), [video?.videoUrl]);
 
-  async function handleProgress(cur: number, dur: number) {
+  async function handleProgress(cur: number, dur: number, force = false) {
     if (!ownerId || !video) return;
-    const pct = dur > 0 ? (cur / dur) * 100 : 0;
-    await savePersonalVideoProgress(ownerId, playlistId, video.id, cur, pct);
-    setVideo((v) => (v ? { ...v, currentPositionSeconds: cur, watchedPercentage: Math.round(pct) } : v));
+    const snapshot = calculateProgress(cur, dur);
+    const shouldPersist = force || shouldPersistProgress({
+      currentSeconds: cur,
+      durationSeconds: dur,
+      lastSavedAt: lastProgressSaveRef.current,
+      now: Date.now(),
+      previousSeconds: previousProgressRef.current,
+    });
+
+    setVideo((v) => (v ? {
+      ...v,
+      currentPositionSeconds: snapshot.currentSeconds,
+      watchedPercentage: snapshot.percent,
+      status: snapshot.completed ? "completed" : (v.status === "completed" ? "completed" : (snapshot.percent > 0 ? "in_progress" : "not_started")),
+    } : v));
+
+    // Nothing worth persisting yet (player hasn't actually started).
+    if (!shouldPersist || cur <= 0) return;
+
+    await savePersonalVideoProgress(ownerId, playlistId, video.id, cur, snapshot.percent);
+    lastProgressSaveRef.current = Date.now();
+    previousProgressRef.current = cur;
   }
 
   async function handleEnded(dur: number) {
     if (!ownerId || !video) return;
+    const snapshot = calculateProgress(dur, dur);
     await savePersonalVideoProgress(ownerId, playlistId, video.id, dur, 100);
-    setVideo((v) => (v ? { ...v, status: "completed", watchedPercentage: 100 } : v));
+    lastProgressSaveRef.current = Date.now();
+    previousProgressRef.current = dur;
+    setVideo((v) => (v ? { ...v, status: "completed", currentPositionSeconds: dur, watchedPercentage: snapshot.percent } : v));
     toast.success("Nice work — video completed!");
   }
 
@@ -156,20 +199,30 @@ function PersonalVideoContent() {
           <p className="text-xs text-muted-foreground">{video.watchedPercentage}% watched</p>
         </div>
 
-        <VideoActionsBar
-          isFavorite={video.isFavorite}
-          isWatchLater={video.isWatchLater}
-          priority={video.priority}
-          isCompleted={video.status === "completed"}
-          hasPrevious={!!prev}
-          hasNext={!!next}
-          onPrevious={() => prev && router.push(`/my-playlists/${playlistId}/${prev.id}${suffix}`)}
-          onNext={() => next && router.push(`/my-playlists/${playlistId}/${next.id}${suffix}`)}
-          onToggleFavorite={handleToggleFavorite}
-          onToggleWatchLater={handleToggleWatchLater}
-          onSetPriority={handleSetPriority}
-          onToggleWatched={handleToggleWatched}
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={externalWatchAction.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          >
+            {externalWatchAction.label}
+          </a>
+          <VideoActionsBar
+            isFavorite={video.isFavorite}
+            isWatchLater={video.isWatchLater}
+            priority={video.priority}
+            isCompleted={video.status === "completed"}
+            hasPrevious={!!prev}
+            hasNext={!!next}
+            onPrevious={() => prev && router.push(`/my-playlists/${playlistId}/${prev.id}${suffix}`)}
+            onNext={() => next && router.push(`/my-playlists/${playlistId}/${next.id}${suffix}`)}
+            onToggleFavorite={handleToggleFavorite}
+            onToggleWatchLater={handleToggleWatchLater}
+            onSetPriority={handleSetPriority}
+            onToggleWatched={handleToggleWatched}
+          />
+        </div>
 
         <Tabs defaultValue="summary">
           <TabsList>
@@ -185,12 +238,19 @@ function PersonalVideoContent() {
             />
           </TabsContent>
           <TabsContent value="notes">
-            <Textarea
-              value={note}
-              onChange={(e) => { setNote(e.target.value); debouncedSaveNote(e.target.value); }}
-              placeholder="Take notes while you watch…"
-              className="min-h-[140px]"
-            />
+            <div className="space-y-3">
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Take notes while you watch…"
+                className="min-h-[140px]"
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={handleSaveNote} size="sm">{note.trim() ? "Save note" : "Clear note"}</Button>
+                <Button variant="outline" size="sm" onClick={handleDeleteNote} disabled={!note.trim()}>Delete note</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Private to this user. Hidden from any shared or public playlist/video views.</p>
+            </div>
           </TabsContent>
         </Tabs>
       </div>

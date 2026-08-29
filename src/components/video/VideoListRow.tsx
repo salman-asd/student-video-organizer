@@ -9,6 +9,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatDuration } from "@/lib/utils";
+import { getVideoWatchHref } from "@/lib/videoRoutes";
 import type { VideoWithState } from "@/types";
 
 export function VideoListRow({
@@ -21,6 +22,7 @@ export function VideoListRow({
   onSetPriority?: (p: "high" | "medium" | "low" | null) => void;
   onToggleFavorite?: () => void;
 }) {
+  const watchHref = getVideoWatchHref(video);
   return (
     <div className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5">
       {dragHandleProps && (
@@ -28,10 +30,10 @@ export function VideoListRow({
           <GripVertical className="h-4 w-4" />
         </span>
       )}
-      <Link href={`/video/${video.id}?playlist=${video.playlistId}`} className="relative h-14 w-24 shrink-0 overflow-hidden rounded-md bg-secondary">
+      <Link href={watchHref} className="relative h-14 w-24 shrink-0 overflow-hidden rounded-md bg-secondary">
         <Image src={video.thumbnailUrl} alt={video.title} fill className="object-cover" sizes="96px" />
       </Link>
-      <Link href={`/video/${video.id}?playlist=${video.playlistId}`} className="min-w-0 flex-1">
+      <Link href={watchHref} className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{video.title}</p>
         <p className="truncate text-xs text-muted-foreground">{video.playlistTitle} · {formatDuration(video.durationSeconds)}</p>
       </Link>

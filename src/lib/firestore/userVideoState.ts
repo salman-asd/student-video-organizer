@@ -82,14 +82,19 @@ export async function setPriority(uid: string, videoId: string, playlistId: stri
   await upsert(uid, videoId, playlistId, { priority, priorityOrder: priority ? Date.now() : undefined });
 }
 
-/** Persist manual drag-and-drop order for a personal list (Watch Later / Priority / Queue). */
+/** Persist manual drag-and-drop order for a personal list (Watch Later / Priority / Queue).
+ *  `indices` lets a caller pass each item's position in a larger merged list
+ *  (e.g. one that also mixes in personal-playlist videos) instead of
+ *  renumbering from 0 — defaults to the array's own order when omitted. */
 export async function reorderPersonalList(
   uid: string,
   orderedVideoIds: string[],
-  field: "watchLaterOrder" | "priorityOrder"
+  field: "watchLaterOrder" | "priorityOrder",
+  indices?: number[]
 ) {
   const batch = writeBatch(db);
-  orderedVideoIds.forEach((videoId, index) => {
+  orderedVideoIds.forEach((videoId, i) => {
+    const index = indices ? indices[i] : i;
     batch.set(stateDoc(uid, videoId), { [field]: index, updatedAt: serverTimestamp() }, { merge: true });
   });
   await batch.commit();
@@ -110,4 +115,44 @@ export async function bulkUpdateStates(
     );
   });
   await batch.commit();
+}
+
+export async function bulkSetWatchedStatus(
+  uid: string,
+  videoIds: string[],
+  playlistIdByVideo: Record<string, string>,
+  watched: boolean
+) {
+  await bulkUpdateStates(uid, videoIds, playlistIdByVideo, {
+    status: watched ? "completed" : "not_started",
+    watchedPercentage: watched ? 100 : 0,
+    completedAt: watched ? (serverTimestamp() as any) : null,
+  });
+}
+
+export async function bulkToggleFavorite(
+  uid: string,
+  videoIds: string[],
+  playlistIdByVideo: Record<string, string>,
+  value: boolean
+) {
+  await bulkUpdateStates(uid, videoIds, playlistIdByVideo, { isFavorite: value });
+}
+
+export async function bulkToggleWatchLater(
+  uid: string,
+  videoIds: string[],
+  playlistIdByVideo: Record<string, string>,
+  value: boolean
+) {
+  await bulkUpdateStates(uid, videoIds, playlistIdByVideo, { isWatchLater: value, watchLaterOrder: value ? Date.now() : undefined });
+}
+
+export async function bulkSetPriority(
+  uid: string,
+  videoIds: string[],
+  playlistIdByVideo: Record<string, string>,
+  priority: PriorityLevel
+) {
+  await bulkUpdateStates(uid, videoIds, playlistIdByVideo, { priority, priorityOrder: priority ? Date.now() : undefined });
 }

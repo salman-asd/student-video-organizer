@@ -4,13 +4,11 @@ import * as React from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useVideoLibrary } from "@/hooks/useVideoLibrary";
+import { useAllVideos } from "@/hooks/useAllVideos";
 import { SortableList } from "@/components/dnd/SortableList";
 import { VideoListRow } from "@/components/video/VideoListRow";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  toggleWatchLater, setWatchedStatus, setPriority, reorderPersonalList,
-} from "@/lib/firestore/userVideoState";
+import { toggleWatchLaterAny, setWatchedAny, setPriorityAny, reorderMixedList } from "@/lib/videoActions";
 import type { VideoWithState } from "@/types";
 import { toast } from "sonner";
 
@@ -24,7 +22,7 @@ export default function WatchLaterPage() {
 
 function WatchLaterContent() {
   const { user } = useAuth();
-  const { loading, videos, refresh } = useVideoLibrary(user?.uid);
+  const { loading, videos, refresh } = useAllVideos(user?.uid);
   const [order, setOrder] = React.useState<VideoWithState[]>([]);
 
   React.useEffect(() => {
@@ -38,24 +36,24 @@ function WatchLaterContent() {
 
   async function handleReorder(newOrder: VideoWithState[]) {
     setOrder(newOrder);
-    await reorderPersonalList(user!.uid, newOrder.map((v) => v.id), "watchLaterOrder");
+    await reorderMixedList(user!.uid, newOrder, "watchLaterOrder");
   }
 
   async function handleRemove(v: VideoWithState) {
-    await toggleWatchLater(user!.uid, v.id, v.playlistId, false);
+    await toggleWatchLaterAny(user!.uid, v, false);
     toast.success("Removed from Watch Later");
     refresh();
   }
 
   async function handleMarkWatched(v: VideoWithState) {
     const next = v.state?.status !== "completed";
-    await setWatchedStatus(user!.uid, v.id, v.playlistId, next);
+    await setWatchedAny(user!.uid, v, next);
     toast.success(next ? "Marked watched" : "Marked unwatched");
     refresh();
   }
 
   async function handlePriority(v: VideoWithState, p: "high" | "medium" | "low" | null) {
-    await setPriority(user!.uid, v.id, v.playlistId, p);
+    await setPriorityAny(user!.uid, v, p);
     refresh();
   }
 
@@ -64,7 +62,7 @@ function WatchLaterContent() {
       <div className="mx-auto max-w-3xl space-y-4">
         <div>
           <h1 className="font-display text-2xl font-semibold">Watch Later</h1>
-          <p className="text-sm text-muted-foreground">Videos you've saved to come back to. Drag to reorder.</p>
+          <p className="text-sm text-muted-foreground">Videos you&apos;ve saved to come back to. Drag to reorder.</p>
         </div>
 
         {loading ? (
@@ -73,7 +71,7 @@ function WatchLaterContent() {
           </div>
         ) : order.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
-            Nothing saved yet — tap "Watch Later" on any video to add it here.
+            Nothing saved yet — tap &quot;Watch Later&quot; on any video to add it here.
           </p>
         ) : (
           <SortableList

@@ -4,11 +4,11 @@ import * as React from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { useVideoLibrary } from "@/hooks/useVideoLibrary";
+import { useAllVideos } from "@/hooks/useAllVideos";
 import { SortableList } from "@/components/dnd/SortableList";
 import { VideoListRow } from "@/components/video/VideoListRow";
 import { Skeleton } from "@/components/ui/skeleton";
-import { setPriority, setWatchedStatus, reorderPersonalList } from "@/lib/firestore/userVideoState";
+import { setPriorityAny, setWatchedAny, reorderMixedList } from "@/lib/videoActions";
 import type { VideoWithState } from "@/types";
 import { toast } from "sonner";
 
@@ -28,7 +28,7 @@ export default function PriorityPage() {
 
 function PriorityContent() {
   const { user } = useAuth();
-  const { loading, videos, refresh } = useVideoLibrary(user?.uid);
+  const { loading, videos, refresh } = useAllVideos(user?.uid);
   const [groups, setGroups] = React.useState<Record<string, VideoWithState[]>>({ high: [], medium: [], low: [] });
 
   React.useEffect(() => {
@@ -44,17 +44,17 @@ function PriorityContent() {
 
   async function handleReorder(level: string, newOrder: VideoWithState[]) {
     setGroups((g) => ({ ...g, [level]: newOrder }));
-    await reorderPersonalList(user!.uid, newOrder.map((v) => v.id), "priorityOrder");
+    await reorderMixedList(user!.uid, newOrder, "priorityOrder");
   }
 
   async function handleChangeLevel(v: VideoWithState, p: "high" | "medium" | "low" | null) {
-    await setPriority(user!.uid, v.id, v.playlistId, p);
+    await setPriorityAny(user!.uid, v, p);
     toast.success(p ? `Moved to ${p} priority` : "Priority removed");
     refresh();
   }
 
   async function handleMarkWatched(v: VideoWithState) {
-    await setWatchedStatus(user!.uid, v.id, v.playlistId, v.state?.status !== "completed");
+    await setWatchedAny(user!.uid, v, v.state?.status !== "completed");
     refresh();
   }
 
@@ -63,7 +63,7 @@ function PriorityContent() {
       <div className="mx-auto max-w-3xl space-y-8">
         <div>
           <h1 className="font-display text-2xl font-semibold">Priority</h1>
-          <p className="text-sm text-muted-foreground">Videos you've marked important, ordered High → Medium → Low.</p>
+          <p className="text-sm text-muted-foreground">Videos you&apos;ve marked important, ordered High → Medium → Low.</p>
         </div>
 
         {loading ? (

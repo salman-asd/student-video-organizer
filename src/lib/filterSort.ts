@@ -6,13 +6,17 @@ export function applyFilters(videos: VideoWithState[], filters: HomeFilters): Vi
     if (filters.playlistId && v.playlistId !== filters.playlistId) return false;
     if (filters.categoryId && v.categoryId !== filters.categoryId) return false;
     if (filters.tagId && !(v.tagIds || []).includes(filters.tagId)) return false;
+    if (filters.platform) {
+      const platform = v.platform || "generic";
+      if (platform !== filters.platform) return false;
+    }
     if (filters.status && (v.state?.status || "not_started") !== filters.status) return false;
     if (filters.favoriteOnly && !v.state?.isFavorite) return false;
     if (filters.watchLaterOnly && !v.state?.isWatchLater) return false;
     if (filters.priority && v.state?.priority !== filters.priority) return false;
     if (filters.query) {
       const q = filters.query.toLowerCase();
-      const haystack = `${v.title} ${v.playlistTitle || ""} ${(v.tagIds || []).join(" ")}`.toLowerCase();
+      const haystack = `${v.title} ${v.creatorName || ""} ${v.playlistTitle || ""} ${(v.tagIds || []).join(" ")}`.toLowerCase();
       if (!haystack.includes(q)) return false;
     }
     return true;

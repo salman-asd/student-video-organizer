@@ -28,80 +28,84 @@ export function FilterBar({ playlists, categories, tags, filters, sort, onFilter
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <SlidersHorizontal className="h-3.5 w-3.5" /> Filters
         </span>
 
-        <Select value={filters.playlistId || ALL} onValueChange={(v) => onFiltersChange({ ...filters, playlistId: v === ALL ? null : v })}>
-          <SelectTrigger className="w-40"><SelectValue placeholder="Playlist" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All playlists</SelectItem>
-            {playlists.map((p) => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <div className="grid w-full gap-2 sm:grid-cols-2 md:flex md:w-auto md:flex-wrap md:items-center">
+          <Select value={filters.playlistId || ALL} onValueChange={(v) => onFiltersChange({ ...filters, playlistId: v === ALL ? null : v })}>
+            <SelectTrigger className="w-full md:w-40"><SelectValue placeholder="Playlist" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All playlists</SelectItem>
+              {playlists.map((p) => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
+            </SelectContent>
+          </Select>
 
-        <Select value={filters.categoryId || ALL} onValueChange={(v) => onFiltersChange({ ...filters, categoryId: v === ALL ? null : v })}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="Category" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All categories</SelectItem>
-            {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+          <Select value={filters.categoryId || ALL} onValueChange={(v) => onFiltersChange({ ...filters, categoryId: v === ALL ? null : v })}>
+            <SelectTrigger className="w-full md:w-36"><SelectValue placeholder="Category" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All categories</SelectItem>
+              {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
 
-        <Select value={filters.tagId || ALL} onValueChange={(v) => onFiltersChange({ ...filters, tagId: v === ALL ? null : v })}>
-          <SelectTrigger className="w-32"><SelectValue placeholder="Tag" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All tags</SelectItem>
-            {tags.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
+          <Select value={filters.tagId || ALL} onValueChange={(v) => onFiltersChange({ ...filters, tagId: v === ALL ? null : v })}>
+            <SelectTrigger className="w-full md:w-32"><SelectValue placeholder="Tag" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All tags</SelectItem>
+              {tags.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
 
-        <Select value={filters.status || ALL} onValueChange={(v) => onFiltersChange({ ...filters, status: v === ALL ? null : (v as any) })}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="Status" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>Any status</SelectItem>
-            <SelectItem value="not_started">Not Started</SelectItem>
-            <SelectItem value="in_progress">In Progress</SelectItem>
-            <SelectItem value="completed">Completed</SelectItem>
-          </SelectContent>
-        </Select>
+          <Select value={filters.status || ALL} onValueChange={(v) => onFiltersChange({ ...filters, status: v === ALL ? null : (v as any) })}>
+            <SelectTrigger className="w-full md:w-36"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any status</SelectItem>
+              <SelectItem value="not_started">Not Started</SelectItem>
+              <SelectItem value="in_progress">In Progress</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <Select value={filters.priority || ALL} onValueChange={(v) => onFiltersChange({ ...filters, priority: v === ALL ? null : (v as any) })}>
-          <SelectTrigger className="w-32"><SelectValue placeholder="Priority" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>Any priority</SelectItem>
-            <SelectItem value="high">🔴 High</SelectItem>
-            <SelectItem value="medium">🟡 Medium</SelectItem>
-            <SelectItem value="low">🟢 Low</SelectItem>
-          </SelectContent>
-        </Select>
+          <Select value={filters.priority || ALL} onValueChange={(v) => onFiltersChange({ ...filters, priority: v === ALL ? null : (v as any) })}>
+            <SelectTrigger className="w-full md:w-32"><SelectValue placeholder="Priority" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Any priority</SelectItem>
+              <SelectItem value="high">🔴 High</SelectItem>
+              <SelectItem value="medium">🟡 Medium</SelectItem>
+              <SelectItem value="low">🟢 Low</SelectItem>
+            </SelectContent>
+          </Select>
 
-        <Button
-          variant={filters.favoriteOnly ? "accent" : "outline"}
-          size="sm"
-          onClick={() => onFiltersChange({ ...filters, favoriteOnly: !filters.favoriteOnly })}
-        >
-          Favorites
-        </Button>
-        <Button
-          variant={filters.watchLaterOnly ? "accent" : "outline"}
-          size="sm"
-          onClick={() => onFiltersChange({ ...filters, watchLaterOnly: !filters.watchLaterOnly })}
-        >
-          Watch Later
-        </Button>
-
-        {activeCount > 0 && (
-          <Button variant="ghost" size="sm" onClick={() => onFiltersChange({ query: filters.query })}>
-            <X className="h-3.5 w-3.5" /> Clear ({activeCount})
+          <Button
+            variant={filters.favoriteOnly ? "accent" : "outline"}
+            size="sm"
+            className="w-full md:w-auto"
+            onClick={() => onFiltersChange({ ...filters, favoriteOnly: !filters.favoriteOnly })}
+          >
+            Favorites
           </Button>
-        )}
+          <Button
+            variant={filters.watchLaterOnly ? "accent" : "outline"}
+            size="sm"
+            className="w-full md:w-auto"
+            onClick={() => onFiltersChange({ ...filters, watchLaterOnly: !filters.watchLaterOnly })}
+          >
+            Watch Later
+          </Button>
 
-        <div className="ml-auto flex items-center gap-2">
+          {activeCount > 0 && (
+            <Button variant="ghost" size="sm" className="w-full md:w-auto" onClick={() => onFiltersChange({ query: filters.query })}>
+              <X className="h-3.5 w-3.5" /> Clear ({activeCount})
+            </Button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 md:ml-auto">
           <span className="text-xs text-muted-foreground">Sort</span>
           <Select value={sort} onValueChange={(v) => onSortChange(v as SortOption)}>
-            <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-full md:w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               {Object.entries(SORT_LABELS).map(([value, label]) => (
                 <SelectItem key={value} value={value}>{label}</SelectItem>

@@ -55,9 +55,15 @@ function SortableRow({ id, children }: { id: string; children: (dragHandleProps:
     transition,
     opacity: isDragging ? 0.6 : 1,
   };
+  // Drag handles need `touch-action: none`, or mobile browsers intercept the
+  // initial touch as a page-scroll gesture before dnd-kit's PointerSensor
+  // (distance activation constraint) ever gets a chance to start the drag —
+  // the most common reason drag-and-drop "does nothing" on touch devices.
+  const dragHandleProps = { ...attributes, ...listeners, style: { touchAction: "none" as const } };
+
   return (
     <div ref={setNodeRef} style={style}>
-      {children({ ...attributes, ...listeners })}
+      {children(dragHandleProps)}
     </div>
   );
 }

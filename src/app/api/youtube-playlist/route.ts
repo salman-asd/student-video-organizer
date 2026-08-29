@@ -1,57 +1,58 @@
 import { NextRequest, NextResponse } from "next/server";
+import { adminAuth, adminDb } from "@/lib/server/firebase-admin";
+import { fetchExternalPlaylistPreview } from "@/lib/video-platforms/playlist";
+
+async function requireAdminSession(req: NextRequest) {
+  const authHeader = req.headers.get("authorization") || "";
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!match) return null;
+
+  try {
+    const decoded = await adminAuth.verifyIdToken(match[1]);
+    const snap = await adminDb.collection("users").doc(decoded.uid).get();
+    const role = snap.exists ? snap.data()?.role : null;
+    return role === "admin" ? decoded.uid : null;
+  } catch {
+    return null;
+  }
+}
 
 // Runs server-side only so the YouTube Data API key is never exposed to the
-// browser. Uses the free quota tier (no billing account required for normal
-// usage) — no videos are downloaded, only public metadata is read.
+// browser. This route is restricted to authenticated administrators, because
+// public metadata fetches still consume server quota and should never be opened
+// to arbitrary unauthenticated users.
 export async function GET(req: NextRequest) {
-  const playlistId = req.nextUrl.searchParams.get("playlistId");
-  const apiKey = process.env.YOUTUBE_API_KEY;
-
-  if (!playlistId) {
-    return NextResponse.json({ error: "Missing playlistId" }, { status: 400 });
+  const adminUid = await requireAdminSession(req);
+  if (!adminUid) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "YOUTUBE_API_KEY is not configured on the server. Add it to your environment variables." },
-      { status: 500 }
-    );
+
+  const playlistId = req.nextUrl.searchParams.get("playlistId");
+  const rawUrl = req.nextUrl.searchParams.get("url");
+
+  const sourceUrl = rawUrl || (playlistId ? `https://www.youtube.com/playlist?list=${encodeURIComponent(playlistId)}` : "");
+
+  if (!sourceUrl.trim()) {
+    return NextResponse.json({ error: "Missing playlist URL or playlistId" }, { status: 400 });
   }
 
   try {
-    const items: any[] = [];
-    let pageToken = "";
-    do {
-      const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
-      url.searchParams.set("part", "snippet,contentDetails");
-      url.searchParams.set("maxResults", "50");
-      url.searchParams.set("playlistId", playlistId);
-      url.searchParams.set("key", apiKey);
-      if (pageToken) url.searchParams.set("pageToken", pageToken);
-
-      const res = await fetch(url.toString());
-      const data = await res.json();
-      if (!res.ok) {
-        return NextResponse.json({ error: data?.error?.message || "YouTube API error" }, { status: res.status });
-      }
-      items.push(...(data.items || []));
-      pageToken = data.nextPageToken || "";
-    } while (pageToken);
-
-    const videos = items
-      .filter((it) => it.snippet?.title && it.snippet.title !== "Deleted video" && it.snippet.title !== "Private video")
-      .map((it, index) => ({
-        title: it.snippet.title as string,
-        youtubeVideoId: it.contentDetails?.videoId as string,
-        videoUrl: `https://www.youtube.com/watch?v=${it.contentDetails?.videoId}`,
-        thumbnailUrl:
-          it.snippet.thumbnails?.high?.url ||
-          it.snippet.thumbnails?.medium?.url ||
-          it.snippet.thumbnails?.default?.url ||
-          "",
-        order: index,
-      }));
-
-    return NextResponse.json({ videos, playlistTitle: items[0]?.snippet?.channelTitle || null });
+    const preview = await fetchExternalPlaylistPreview(sourceUrl);
+    return NextResponse.json({
+      title: preview.title,
+      description: preview.description || "",
+      thumbnailUrl: preview.thumbnailUrl || "",
+      sourceUrl: preview.sourceUrl,
+      totalVideos: preview.totalVideos,
+      unavailableCount: preview.unavailableCount,
+      videos: preview.videos.map((video) => ({
+        title: video.title,
+        youtubeVideoId: video.youtubeVideoId || null,
+        videoUrl: video.videoUrl,
+        thumbnailUrl: video.thumbnailUrl || "",
+        order: video.order,
+      })),
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to fetch playlist" }, { status: 500 });
   }

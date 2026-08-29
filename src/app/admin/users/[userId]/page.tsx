@@ -284,7 +284,7 @@ function AdminUserDetailContent() {
               <Textarea value={noteContent} readOnly className="min-h-[100px]" />
             </div>
             <p className="text-xs text-muted-foreground">
-              Read-only preview. Editing a student's notes directly is supported via the same Firestore
+              Read-only preview. Editing a student&apos;s notes directly is supported via the same Firestore
               document (users/{"{"}uid{"}"}/notes/{"{"}videoId{"}"}) — wire up a save button here if your workflow needs it.
             </p>
           </div>

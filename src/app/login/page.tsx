@@ -63,7 +63,7 @@ export default function LoginPage() {
             <br /> one quiet desk.
           </h1>
           <p className="max-w-sm text-primary-foreground/75">
-            Organize the videos you're learning from, pick up exactly where you left off,
+            Organize the videos you&apos;re learning from, pick up exactly where you left off,
             and keep notes and bookmarks next to every lesson.
           </p>
           <div className="flex gap-6 pt-4 text-sm text-primary-foreground/70">
@@ -92,7 +92,7 @@ export default function LoginPage() {
             <p className="mt-1 text-sm text-muted-foreground">
               {mode === "login" && "Sign in to continue learning."}
               {mode === "register" && "Set up your personal learning library."}
-              {mode === "reset" && "We'll email you a reset link."}
+              {mode === "reset" && "We&apos;ll email you a reset link."}
             </p>
 
             <form onSubmit={onSubmit} className="mt-6 space-y-4">

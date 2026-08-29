@@ -12,6 +12,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 
 const studentNav = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+  { href: "/library", label: "Library", icon: ListVideo },
   { href: "/continue-learning", label: "Continue Learning", icon: PlayCircle },
   { href: "/playlists", label: "Playlists", icon: ListVideo },
   { href: "/my-playlists", label: "My Playlists", icon: Lock },

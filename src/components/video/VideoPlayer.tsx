@@ -7,8 +7,8 @@ interface Props {
   youtubeVideoId?: string | null;
   videoUrl: string;
   startSeconds?: number;
-  onProgress: (currentSeconds: number, durationSeconds: number) => void;
-  onPause: (currentSeconds: number, durationSeconds: number) => void;
+  onProgress: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
+  onPause: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
   onEnded: (durationSeconds: number) => void;
 }
 
@@ -26,7 +26,14 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
   const opts: YouTubeProps["opts"] = {
     width: "100%",
     height: "100%",
-    playerVars: { start: Math.floor(startSeconds), rel: 0, modestbranding: 1 },
+    playerVars: {
+      start: Math.floor(startSeconds),
+      rel: 0,
+      modestbranding: 1,
+      controls: 1,
+      fs: 1,
+      playsinline: 1,
+    },
   };
 
   function handleReady(e: { target: YouTubePlayer }) {
@@ -44,18 +51,22 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
       // Periodic save while playing — every 20s, not every second, to
       // minimize Firestore writes (see README > Firestore optimization).
       intervalRef.current = setInterval(async () => {
-        const cur = await e.target.getCurrentTime();
-        const dur = await e.target.getDuration();
+        const cur = Number(await e.target.getCurrentTime());
+        const dur = Number(await e.target.getDuration());
         onProgress(cur, dur);
       }, 20000);
     }
 
     if (e.data === YT_PAUSED) {
-      Promise.all([e.target.getCurrentTime(), e.target.getDuration()]).then(([cur, dur]) => onPause(cur, dur));
+      // Pausing is a natural checkpoint — force the save so the exact
+      // position is captured even if you paused seconds after the last
+      // throttled periodic save (otherwise a short viewing session could
+      // end without ever persisting real progress).
+      Promise.all([e.target.getCurrentTime(), e.target.getDuration()]).then(([cur, dur]: [number, number]) => onPause(cur, dur, true));
     }
 
     if (e.data === YT_ENDED) {
-      e.target.getDuration().then((dur) => onEnded(dur));
+      e.target.getDuration().then((dur: number) => onEnded(dur));
     }
   }
 
@@ -64,7 +75,10 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
     function handleBeforeUnload() {
       const p = playerRef.current;
       if (!p) return;
-      Promise.all([p.getCurrentTime(), p.getDuration()]).then(([cur, dur]) => onProgress(cur, dur));
+      // Same reasoning as the pause handler — this is the last chance to
+      // persist progress before the tab/route changes, so it must not be
+      // silently dropped by the periodic-save throttle.
+      Promise.all([p.getCurrentTime(), p.getDuration()]).then(([cur, dur]: [number, number]) => onProgress(cur, dur, true));
     }
     window.addEventListener("beforeunload", handleBeforeUnload);
     return () => {
@@ -87,8 +101,15 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
   }
 
   return (
-    <div className="aspect-video w-full overflow-hidden rounded-lg bg-black">
-      <YouTube videoId={youtubeVideoId} opts={opts} onReady={handleReady} onStateChange={handleStateChange} className="h-full w-full" iframeClassName="h-full w-full" />
+    <div className="relative z-0 aspect-video w-full overflow-hidden rounded-lg bg-black">
+      <YouTube
+        videoId={youtubeVideoId}
+        opts={opts}
+        onReady={handleReady}
+        onStateChange={handleStateChange}
+        className="h-full w-full"
+        iframeClassName="h-full w-full"
+      />
     </div>
   );
 }

@@ -38,39 +38,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
+    let isMounted = true;
+
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
+      if (!isMounted) return;
+
       setUser(fbUser);
+
       if (!fbUser) {
         setProfile(null);
         setLoading(false);
         return;
       }
-      const ref = doc(db, "users", fbUser.uid);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        // First sign-in: create the profile document. Role is 'admin' only
-        // if the email is in the seed list; otherwise 'student'. Real admin
-        // promotion afterwards happens via Firestore (admin-only write).
-        const role = SEED_ADMIN_EMAILS.includes((fbUser.email || "").toLowerCase()) ? "admin" : "student";
-        const newProfile: Omit<UserProfile, "uid"> = {
-          email: fbUser.email || "",
-          displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "Student",
-          role,
-          status: "active",
-          createdAt: serverTimestamp() as any,
-          lastActiveAt: serverTimestamp() as any,
-        };
-        await setDoc(ref, newProfile);
-        setProfile({ uid: fbUser.uid, ...newProfile });
-      } else {
-        const data = snap.data() as Omit<UserProfile, "uid">;
-        setProfile({ uid: fbUser.uid, ...data });
-        // Cheap, infrequent write — only touches lastActiveAt, not on every action.
-        updateDoc(ref, { lastActiveAt: serverTimestamp() }).catch(() => {});
+
+      try {
+        const ref = doc(db, "users", fbUser.uid);
+        const snap = await getDoc(ref);
+
+        if (!snap.exists()) {
+          // First sign-in: create the profile document. Role is 'admin' only
+          // if the email is in the seed list; otherwise 'student'. Real admin
+          // promotion afterwards happens via Firestore (admin-only write).
+          const role = SEED_ADMIN_EMAILS.includes((fbUser.email || "").toLowerCase()) ? "admin" : "student";
+          const newProfile: Omit<UserProfile, "uid"> = {
+            email: fbUser.email || "",
+            displayName: fbUser.displayName || fbUser.email?.split("@")[0] || "Student",
+            role,
+            status: "active",
+            createdAt: serverTimestamp() as any,
+            lastActiveAt: serverTimestamp() as any,
+          };
+
+          await setDoc(ref, newProfile);
+          if (isMounted) setProfile({ uid: fbUser.uid, ...newProfile });
+        } else {
+          const data = snap.data() as Omit<UserProfile, "uid">;
+          const nextProfile: UserProfile = { uid: fbUser.uid, ...data };
+
+          if (isMounted) setProfile(nextProfile);
+
+          // Cheap, infrequent write — only touches lastActiveAt, not on every action.
+          await updateDoc(ref, { lastActiveAt: serverTimestamp() }).catch(() => {});
+        }
+      } catch (error) {
+        console.error("Failed to sync Firebase auth profile", error);
+        if (isMounted) setProfile(null);
+      } finally {
+        if (isMounted) setLoading(false);
       }
-      setLoading(false);
     });
-    return () => unsub();
+
+    return () => {
+      isMounted = false;
+      unsub();
+    };
   }, []);
 
   const login = React.useCallback(async (email: string, password: string) => {
