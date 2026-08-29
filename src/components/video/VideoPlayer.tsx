@@ -23,18 +23,34 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
 
   const clearPoll = () => intervalRef.current && clearInterval(intervalRef.current);
 
-  const opts: YouTubeProps["opts"] = {
+  // `startSeconds` is fed from the same progress state we save every ~20s,
+  // so it changes on every tick. `opts` must NOT be rebuilt on those
+  // updates — react-youtube treats a new `opts` object as a real change
+  // and reloads/reseeks the underlying iframe player, which pauses
+  // playback. We only want the resume position once — at mount, or when
+  // the video itself actually changes (e.g. Prev/Next) — so it's captured
+  // into a ref synchronously during render (not an effect, which would run
+  // one tick too late and hand the memo the previous video's position).
+  const lastVideoIdRef = React.useRef<string | null | undefined>(undefined);
+  const resumeSecondsRef = React.useRef(startSeconds);
+  if (lastVideoIdRef.current !== youtubeVideoId) {
+    lastVideoIdRef.current = youtubeVideoId;
+    resumeSecondsRef.current = startSeconds;
+  }
+
+  const opts: YouTubeProps["opts"] = React.useMemo(() => ({
     width: "100%",
     height: "100%",
     playerVars: {
-      start: Math.floor(startSeconds),
+      start: Math.floor(resumeSecondsRef.current),
       rel: 0,
       modestbranding: 1,
       controls: 1,
       fs: 1,
       playsinline: 1,
     },
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [youtubeVideoId]);
 
   function handleReady(e: { target: YouTubePlayer }) {
     playerRef.current = e.target;
