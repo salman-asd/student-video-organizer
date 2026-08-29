@@ -134,34 +134,45 @@ export async function bulkAddVideosToPersonalPlaylist(
   const playlistRef = doc(db, "users", ownerId, "personalPlaylists", playlistId);
   const playlistSnap = await getDoc(playlistRef);
   const currentSortOrder = (playlistSnap.exists() ? (playlistSnap.data().sortOrder as string[] | undefined) : []) || [];
-  const batch = writeBatch(db);
-  const newRefs = uniqueVideos.map(() => doc(videosCol(ownerId, playlistId)));
 
-  newRefs.forEach((ref, index) => {
-    batch.set(ref, {
-      ...uniqueVideos[index],
-      order: existing.length + index,
-      status: "not_started" as WatchStatus,
-      watchedPercentage: 0,
-      currentPositionSeconds: 0,
-      isFavorite: false,
-      isWatchLater: false,
-      priority: null,
-      lastWatchedAt: null,
-      completedAt: null,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+  // A Firestore batch caps out at 500 writes. A large imported playlist
+  // (a few hundred videos is common) plus the trailing playlist-doc update
+  // could exceed that, so video writes are chunked defensively — each
+  // chunk is its own batch, and the playlist doc (sortOrder/videoCount) is
+  // only updated once, after every chunk has committed.
+  const CHUNK_SIZE = 400;
+  const allNewIds: string[] = [];
+  for (let start = 0; start < uniqueVideos.length; start += CHUNK_SIZE) {
+    const chunk = uniqueVideos.slice(start, start + CHUNK_SIZE);
+    const batch = writeBatch(db);
+    const refs = chunk.map(() => doc(videosCol(ownerId, playlistId)));
+    refs.forEach((ref, i) => {
+      batch.set(ref, {
+        ...chunk[i],
+        order: existing.length + start + i,
+        status: "not_started" as WatchStatus,
+        watchedPercentage: 0,
+        currentPositionSeconds: 0,
+        isFavorite: false,
+        isWatchLater: false,
+        priority: null,
+        lastWatchedAt: null,
+        completedAt: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
     });
-  });
+    await batch.commit();
+    allNewIds.push(...refs.map((ref) => ref.id));
+  }
 
-  batch.update(playlistRef, {
-    sortOrder: [...currentSortOrder, ...newRefs.map((ref) => ref.id)],
+  await updateDoc(playlistRef, {
+    sortOrder: [...currentSortOrder, ...allNewIds],
     sortMode: "custom" as PersonalPlaylistSortMode,
     videoCount: increment(uniqueVideos.length),
     updatedAt: serverTimestamp(),
   });
 
-  await batch.commit();
   return uniqueVideos.length;
 }
 

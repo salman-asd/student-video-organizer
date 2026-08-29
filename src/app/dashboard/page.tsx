@@ -91,7 +91,7 @@ function DashboardContent() {
             <div className="flex flex-wrap gap-2">
               <Button asChild size="sm"><Link href={firstPlaylistHref}><Plus className="h-4 w-4" /> Add Video</Link></Button>
               <Button asChild variant="outline" size="sm"><Link href="/my-playlists"><FolderPlus className="h-4 w-4" /> Create Playlist</Link></Button>
-              <Button asChild variant="outline" size="sm"><Link href="/admin/import-youtube"><Download className="h-4 w-4" /> Import Playlist</Link></Button>
+              <Button asChild variant="outline" size="sm"><Link href="/my-playlists/import"><Download className="h-4 w-4" /> Import Playlist</Link></Button>
             </div>
           </div>
 

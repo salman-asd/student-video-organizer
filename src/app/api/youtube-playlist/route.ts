@@ -1,29 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/server/firebase-admin";
+import { adminAuth } from "@/lib/server/firebase-admin";
 import { fetchExternalPlaylistPreview } from "@/lib/video-platforms/playlist";
 
-async function requireAdminSession(req: NextRequest) {
+async function requireAuthenticatedSession(req: NextRequest) {
   const authHeader = req.headers.get("authorization") || "";
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!match) return null;
 
   try {
     const decoded = await adminAuth.verifyIdToken(match[1]);
-    const snap = await adminDb.collection("users").doc(decoded.uid).get();
-    const role = snap.exists ? snap.data()?.role : null;
-    return role === "admin" ? decoded.uid : null;
+    return decoded.uid;
   } catch {
     return null;
   }
 }
 
 // Runs server-side only so the YouTube Data API key is never exposed to the
-// browser. This route is restricted to authenticated administrators, because
-// public metadata fetches still consume server quota and should never be opened
-// to arbitrary unauthenticated users.
+// browser. Any signed-in user may call this — both the admin shared-library
+// importer and the personal "My Playlists" importer use it — but it stays
+// behind authentication (rather than fully public) so anonymous traffic
+// can't burn through the server's YouTube Data API quota.
 export async function GET(req: NextRequest) {
-  const adminUid = await requireAdminSession(req);
-  if (!adminUid) {
+  const uid = await requireAuthenticatedSession(req);
+  if (!uid) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

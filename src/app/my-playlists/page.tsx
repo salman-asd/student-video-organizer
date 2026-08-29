@@ -19,7 +19,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createPersonalPlaylist, listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
 import type { PersonalPlaylist, PersonalPlaylistVisibility } from "@/types";
-import { Lock, Plus, ListVideo } from "lucide-react";
+import { Lock, Plus, ListVideo, Youtube } from "lucide-react";
 import { toast } from "sonner";
 
 const PERSONAL_PLAYLIST_VISIBILITY_LABELS: Record<PersonalPlaylistVisibility, string> = {
@@ -84,7 +84,10 @@ function MyPlaylistsContent() {
                 : "Private to you — no other student can see these."}
             </p>
           </div>
-          <Button size="sm" onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" /> New Playlist</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm"><Link href="/my-playlists/import"><Youtube className="h-4 w-4" /> Import Playlist</Link></Button>
+            <Button size="sm" onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" /> New Playlist</Button>
+          </div>
         </div>
 
         {loading ? (

@@ -525,7 +525,7 @@ function PersonalPlaylistEditorContent() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /> Add Video</Button>
-                    <Button variant="outline" size="sm" asChild><Link href="/admin/import-youtube"><Download className="h-4 w-4" /> Import Playlist</Link></Button>
+                    <Button variant="outline" size="sm" asChild><Link href={`/my-playlists/import?target=${playlistId}`}><Download className="h-4 w-4" /> Import Playlist</Link></Button>
                     <Button variant="outline" size="sm" onClick={handleSharePlaylist} disabled={shareBusy}>Share</Button>
                     <Button variant="outline" size="sm" onClick={() => setDetailsOpen(true)}><Pencil className="h-4 w-4" /> Edit</Button>
                     <Button variant="destructive" size="sm" onClick={handleDeletePlaylist}><Trash2 className="h-4 w-4" /> Delete</Button>
