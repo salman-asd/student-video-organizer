@@ -259,8 +259,17 @@ function AdminUserDetailContent() {
             {goals.length === 0 && <EmptyRow text="No goals set." />}
             {goals.map((g) => (
               <Card key={g.id}>
-                <CardContent className="flex items-center justify-between p-3">
-                  <span className={g.completed ? "text-sm text-muted-foreground line-through" : "text-sm"}>{g.title}</span>
+                <CardContent className="flex flex-wrap items-center justify-between gap-2 p-3">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={g.completed ? "text-sm text-muted-foreground line-through" : "text-sm"}>{g.title}</span>
+                    {g.priority && (
+                      <Badge variant={g.priority === "high" ? "priorityHigh" : g.priority === "medium" ? "priorityMedium" : "priorityLow"}>
+                        {g.priority}
+                      </Badge>
+                    )}
+                    {g.targetDate && <Badge variant="outline">Due {g.targetDate}</Badge>}
+                    {g.linkedPlaylistTitle && <Badge variant="outline">{g.linkedPlaylistTitle}</Badge>}
+                  </div>
                   <Badge variant={g.completed ? "success" : "secondary"}>{g.completed ? "Done" : "Active"}</Badge>
                 </CardContent>
               </Card>
