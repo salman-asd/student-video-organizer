@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
 import { isResumeEligible } from "@/lib/watchProgress";
+import { formatWatchTime } from "@/lib/utils";
 import { VideoCard } from "@/components/video/VideoCard";
 import { toggleFavoriteAny, toggleWatchLaterAny, setPriorityAny, setWatchedAny } from "@/lib/videoActions";
 import type { PersonalPlaylist, PriorityLevel, VideoWithState } from "@/types";
@@ -189,7 +190,7 @@ function DashboardContent() {
                         {playlist.description && <p className="line-clamp-2 text-sm text-muted-foreground">{playlist.description}</p>}
                       </div>
                       <div className="flex items-center justify-between text-sm text-muted-foreground">
-                        <span>{playlist.videoCount} videos</span>
+                        <span>{playlist.videoCount} videos{!!playlist.totalDurationSeconds && ` · ${formatWatchTime(playlist.totalDurationSeconds)}`}</span>
                         <BookOpen className="h-4 w-4" />
                       </div>
                     </CardContent>

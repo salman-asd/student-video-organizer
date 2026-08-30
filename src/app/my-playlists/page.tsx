@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { createPersonalPlaylist, listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
 import type { PersonalPlaylist, PersonalPlaylistVisibility } from "@/types";
 import { Lock, Plus, ListVideo, Youtube } from "lucide-react";
+import { formatWatchTime } from "@/lib/utils";
 import { toast } from "sonner";
 
 const PERSONAL_PLAYLIST_VISIBILITY_LABELS: Record<PersonalPlaylistVisibility, string> = {
@@ -111,6 +112,7 @@ function MyPlaylistsContent() {
                     {p.description && <p className="line-clamp-2 text-sm text-muted-foreground">{p.description}</p>}
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <Badge variant="secondary">{p.videoCount} videos</Badge>
+                      {!!p.totalDurationSeconds && <Badge variant="secondary">{formatWatchTime(p.totalDurationSeconds)}</Badge>}
                       <Badge variant="outline">{PERSONAL_PLAYLIST_VISIBILITY_LABELS[p.visibility] || "Private"}</Badge>
                     </div>
                   </CardContent>

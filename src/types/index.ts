@@ -249,6 +249,7 @@ export type PersonalPlaylistSortMode =
   | "oldest"
   | "title-asc"
   | "title-desc"
+  | "title-natural"
   | "watched-first"
   | "unwatched-first"
   | "priority"
@@ -263,6 +264,7 @@ export interface PersonalPlaylist {
   sortMode?: PersonalPlaylistSortMode;
   sortOrder?: string[];
   videoCount: number;
+  totalDurationSeconds?: number;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
 }

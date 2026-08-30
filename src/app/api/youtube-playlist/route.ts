@@ -49,6 +49,7 @@ export async function GET(req: NextRequest) {
         youtubeVideoId: video.youtubeVideoId || null,
         videoUrl: video.videoUrl,
         thumbnailUrl: video.thumbnailUrl || "",
+        durationSeconds: typeof video.durationSeconds === "number" ? video.durationSeconds : null,
         order: video.order,
       })),
     });

@@ -1,5 +1,6 @@
 import type { VideoPlatform } from "@/types";
 import { parseVideoUrl } from "./types";
+import { fetchYouTubeDurations } from "./youtubeDuration";
 
 export interface ExternalPlaylistVideo {
   title: string;
@@ -147,6 +148,11 @@ export class YouTubePlaylistProvider implements ExternalPlaylistProvider {
         platform: "youtube",
         order: index,
       });
+    });
+
+    const { durations } = await fetchYouTubeDurations(validVideos.map((v) => v.youtubeVideoId).filter(Boolean) as string[]);
+    validVideos.forEach((v) => {
+      if (v.youtubeVideoId && durations[v.youtubeVideoId] !== undefined) v.durationSeconds = durations[v.youtubeVideoId];
     });
 
     return {

@@ -71,6 +71,21 @@ export async function setPersonalPlaylistSortMode(
   });
 }
 
+/** Overwrites (not increments) the playlist's stored total duration to
+ *  match a freshly computed sum. `totalDurationSeconds` is normally kept
+ *  in sync incrementally by the various add/remove/duration-backfill
+ *  functions above, but that only covers changes made *after* this field
+ *  existed — a playlist with videos/durations from before this feature
+ *  would otherwise show a stale (0 or partial) total forever. The detail
+ *  page calls this once after loading if the stored value doesn't match
+ *  what it just computed client-side from the actual videos, which
+ *  self-heals that gap without needing a one-time migration script. */
+export async function syncPersonalPlaylistTotalDuration(ownerId: string, playlistId: string, seconds: number) {
+  await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId), {
+    totalDurationSeconds: seconds,
+  });
+}
+
 export async function deletePersonalPlaylist(ownerId: string, playlistId: string) {
   const vids = await getDocs(videosCol(ownerId, playlistId));
   const batch = writeBatch(db);
@@ -170,6 +185,7 @@ export async function bulkAddVideosToPersonalPlaylist(
     sortOrder: [...currentSortOrder, ...allNewIds],
     sortMode: "custom" as PersonalPlaylistSortMode,
     videoCount: increment(uniqueVideos.length),
+    totalDurationSeconds: increment(uniqueVideos.reduce((sum, v) => sum + (v.durationSeconds || 0), 0)),
     updatedAt: serverTimestamp(),
   });
 
@@ -215,6 +231,7 @@ export async function addPersonalVideo(
     sortOrder: [...currentSortOrder, ref.id],
     sortMode: "custom" as PersonalPlaylistSortMode,
     videoCount: increment(1),
+    totalDurationSeconds: increment(data.durationSeconds || 0),
     updatedAt: serverTimestamp(),
   });
   return ref.id;
@@ -248,13 +265,68 @@ export async function updatePersonalVideoMeta(
   ownerId: string, playlistId: string, videoId: string,
   data: Partial<Pick<PersonalVideo, "title" | "videoUrl" | "thumbnailUrl" | "durationSeconds">>
 ) {
-  await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId), {
+  const videoRef = doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId);
+
+  // Only touch the playlist's running total if duration is actually
+  // changing — read the prior value first so we write a *delta*, not the
+  // new value outright (increment() is atomic; a plain overwrite would
+  // race with concurrent adds/removes to the same playlist doc).
+  if (data.durationSeconds !== undefined) {
+    const prevSnap = await getDoc(videoRef);
+    const prevSeconds = prevSnap.exists() ? (prevSnap.data().durationSeconds || 0) : 0;
+    const delta = (data.durationSeconds || 0) - prevSeconds;
+    if (delta !== 0) {
+      await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId), {
+        totalDurationSeconds: increment(delta),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  }
+
+  await updateDoc(videoRef, {
     ...data, updatedAt: serverTimestamp(),
   });
 }
 
+/** Batched duration backfill for videos saved before duration lookups
+ *  existed (or where the source never had it, e.g. oEmbed). Keyed by
+ *  videoId -> seconds. Chunked defensively, same reasoning as
+ *  bulkAddVideosToPersonalPlaylist. */
+export async function bulkSetPersonalVideoDurations(
+  ownerId: string,
+  playlistId: string,
+  durationsByVideoId: Record<string, number>
+) {
+  const entries = Object.entries(durationsByVideoId);
+  if (entries.length === 0) return;
+
+  const CHUNK_SIZE = 400;
+  for (let start = 0; start < entries.length; start += CHUNK_SIZE) {
+    const batch = writeBatch(db);
+    entries.slice(start, start + CHUNK_SIZE).forEach(([videoId, seconds]) => {
+      batch.update(doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId), {
+        durationSeconds: seconds,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  }
+
+  // These were all previously missing (falsy/0), so the delta is simply
+  // the full sum of what was just backfilled — no prior value to subtract.
+  const totalSeconds = entries.reduce((sum, [, seconds]) => sum + seconds, 0);
+  await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId), {
+    totalDurationSeconds: increment(totalSeconds),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function removePersonalVideo(ownerId: string, playlistId: string, videoId: string) {
-  await deleteDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId));
+  const videoRef = doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId);
+  const videoSnap = await getDoc(videoRef);
+  const removedSeconds = videoSnap.exists() ? (videoSnap.data().durationSeconds || 0) : 0;
+
+  await deleteDoc(videoRef);
 
   const playlistRef = doc(db, "users", ownerId, "personalPlaylists", playlistId);
   const playlistSnap = await getDoc(playlistRef);
@@ -264,6 +336,7 @@ export async function removePersonalVideo(ownerId: string, playlistId: string, v
     sortOrder: existingSortOrder.filter((id) => id !== videoId),
     sortMode: "custom" as PersonalPlaylistSortMode,
     videoCount: increment(-1),
+    totalDurationSeconds: increment(-removedSeconds),
     updatedAt: serverTimestamp(),
   });
 }
@@ -290,6 +363,12 @@ export async function bulkRemovePersonalVideos(ownerId: string, playlistId: stri
   const playlistRef = doc(db, "users", ownerId, "personalPlaylists", playlistId);
   const playlistSnap = await getDoc(playlistRef);
   const existingSortOrder = (playlistSnap.exists() ? (playlistSnap.data().sortOrder as string[] | undefined) : []) || [];
+
+  const videoSnaps = await Promise.all(
+    videoIds.map((videoId) => getDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId)))
+  );
+  const removedSeconds = videoSnaps.reduce((sum, snap) => sum + (snap.exists() ? (snap.data().durationSeconds || 0) : 0), 0);
+
   const batch = writeBatch(db);
 
   videoIds.forEach((videoId) => {
@@ -300,6 +379,7 @@ export async function bulkRemovePersonalVideos(ownerId: string, playlistId: stri
     sortOrder: existingSortOrder.filter((id) => !videoIds.includes(id)),
     sortMode: "custom" as PersonalPlaylistSortMode,
     videoCount: increment(-videoIds.length),
+    totalDurationSeconds: increment(-removedSeconds),
     updatedAt: serverTimestamp(),
   });
 

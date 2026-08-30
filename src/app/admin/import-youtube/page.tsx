@@ -21,6 +21,7 @@ interface PreviewVideo {
   youtubeVideoId: string | null;
   videoUrl: string;
   thumbnailUrl: string;
+  durationSeconds: number | null;
   order: number;
 }
 
@@ -84,6 +85,7 @@ function AdminImportYouTubeContent() {
           youtubeVideoId: video.youtubeVideoId || null,
           videoUrl: video.videoUrl,
           thumbnailUrl: video.thumbnailUrl || "",
+          durationSeconds: typeof video.durationSeconds === "number" ? video.durationSeconds : null,
           order: video.order ?? 0,
         })) : [],
       };
@@ -139,6 +141,7 @@ function AdminImportYouTubeContent() {
             videoUrl: video.videoUrl,
             youtubeVideoId: video.youtubeVideoId,
             thumbnailUrl: video.thumbnailUrl,
+            durationSeconds: video.durationSeconds ?? undefined,
             platform: "youtube",
           });
           imported += 1;

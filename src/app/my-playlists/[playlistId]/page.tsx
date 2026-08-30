@@ -22,10 +22,10 @@ import { ShareDialog } from "@/components/share/ShareDialog";
 import { SortableList } from "@/components/dnd/SortableList";
 import {
   addPersonalVideo, bulkRemovePersonalVideos, bulkSetPersonalVideosWatched, bulkSetPersonalVideoPriority,
-  bulkTogglePersonalVideoFavorite, bulkTogglePersonalVideoWatchLater, deletePersonalPlaylist,
+  bulkTogglePersonalVideoFavorite, bulkTogglePersonalVideoWatchLater, bulkSetPersonalVideoDurations, deletePersonalPlaylist,
   findDuplicatePersonalVideoUrl, getPersonalPlaylist, listPersonalVideos, movePersonalVideo,
   removePersonalVideo, reorderPersonalVideos, renamePersonalPlaylist, setPersonalPlaylistSortMode,
-  updatePersonalVideoMeta,
+  syncPersonalPlaylistTotalDuration, updatePersonalVideoMeta,
 } from "@/lib/firestore/personalPlaylists";
 import { db } from "@/lib/firebase";
 import { createOrUpdatePlaylistShare } from "@/lib/firestore/shares";
@@ -37,9 +37,9 @@ import {
   normalizeVideoUrl,
   validateVideoUrl,
 } from "@/lib/video-platforms";
-import { formatDuration } from "@/lib/utils";
+import { formatDuration, formatWatchTime } from "@/lib/utils";
 import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibility, PersonalVideo, ShareVisibility } from "@/types";
-import { ArrowLeft, CheckCircle2, ChevronUp, ChevronDown, Download, GripVertical, Lock, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ChevronUp, ChevronDown, Clock, Download, GripVertical, Lock, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const PERSONAL_PLAYLIST_VISIBILITY_LABELS: Record<PersonalPlaylistVisibility, string> = {
@@ -54,11 +54,18 @@ const PERSONAL_PLAYLIST_SORT_LABELS: Record<PersonalPlaylistSortMode, string> = 
   oldest: "Oldest added",
   "title-asc": "Title A-Z",
   "title-desc": "Title Z-A",
+  "title-natural": "Title (Lesson/Part number)",
   "watched-first": "Watched first",
   "unwatched-first": "Unwatched first",
   priority: "Priority",
   duration: "Duration",
 };
+
+// Plain title-asc does a character-by-character compare, so "Lesson 10"
+// sorts before "Lesson 2" (the "1" beats the "2"). This treats embedded
+// digit runs as numbers instead — "Lesson 2" then correctly comes before
+// "Lesson 10" — which is what most numbered course/lesson titles need.
+const naturalTitleCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 export default function PersonalPlaylistEditorPage() {
   return (
@@ -158,6 +165,7 @@ function PersonalPlaylistEditorContent() {
       const diff = (priorityRank[(b.priority ?? "null") as keyof typeof priorityRank] ?? 0) - (priorityRank[(a.priority ?? "null") as keyof typeof priorityRank] ?? 0);
       return diff || (a.order ?? 0) - (b.order ?? 0);
     });
+    if (sortMode === "title-natural") return source.sort((a, b) => naturalTitleCollator.compare(a.title, b.title));
     if (sortMode === "duration") return source.sort((a, b) => (b.durationSeconds ?? 0) - (a.durationSeconds ?? 0));
     return source.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }, [videos, sortMode, playlist?.sortOrder]);
@@ -180,6 +188,24 @@ function PersonalPlaylistEditorContent() {
   const watchedCount = videos.filter((video) => video.status === "completed").length;
   const unwatchedCount = videos.length - watchedCount;
   const completionPercent = videos.length > 0 ? Math.round((watchedCount / videos.length) * 100) : 0;
+  const totalDurationSeconds = React.useMemo(
+    () => videos.reduce((sum, v) => sum + (v.durationSeconds || 0), 0),
+    [videos]
+  );
+
+  // Self-heals the playlist's stored total (used by the /my-playlists card
+  // list) against whatever's actually true right now — covers playlists
+  // whose videos/durations existed before this running total did, without
+  // a one-time migration script. Cheap: one write, only when it's wrong.
+  React.useEffect(() => {
+    if (!playlist || loading) return;
+    if ((playlist.totalDurationSeconds || 0) !== totalDurationSeconds) {
+      syncPersonalPlaylistTotalDuration(ownerId, playlistId, totalDurationSeconds)
+        .then(() => setPlaylist((p) => (p ? { ...p, totalDurationSeconds } : p)))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, totalDurationSeconds]);
   const firstThumb = videos.find((v) => !!v.thumbnailUrl)?.thumbnailUrl || "";
   const selectedVideos = videos.filter((video) => selectedIds.includes(video.id));
   const allVisibleSelected = filteredVideos.length > 0 && filteredVideos.every((video) => selectedIds.includes(video.id));
@@ -217,6 +243,25 @@ function PersonalPlaylistEditorContent() {
           setNewTitle((current) => current || meta.title);
           setNewThumb((current) => current || (meta.thumbnailUrl || ""));
           setNewDescription((current) => current || (meta.description || ""));
+
+          // oEmbed (used above) never returns duration for YouTube — only
+          // the Data API does, which needs a server round-trip. Fetched
+          // separately so it doesn't delay the rest of the preview.
+          if (meta.durationSeconds == null && (meta.platform === "youtube" || meta.platform === "youtube-shorts")) {
+            const ytId = extractExternalVideoId(candidate);
+            if (ytId) {
+              user?.getIdToken?.().then((idToken) =>
+                fetch(`/api/youtube-duration?ids=${encodeURIComponent(ytId)}`, {
+                  headers: idToken ? { Authorization: `Bearer ${idToken}` } : {},
+                }).then((res) => (res.ok ? res.json() : null))
+              ).then((data) => {
+                const seconds = data?.durations?.[ytId];
+                if (isActive && typeof seconds === "number") {
+                  setMetadataPreview((current) => (current ? { ...current, durationSeconds: seconds } : current));
+                }
+              }).catch(() => {});
+            }
+          }
         } else {
           setMetadataPreview(null);
           setUrlStatus("manual");
@@ -231,6 +276,11 @@ function PersonalPlaylistEditorContent() {
       });
 
     return () => { isActive = false; };
+    // `user` is intentionally omitted — this only needs the *current*
+    // getIdToken() at fetch time, and adding user as a dependency would
+    // re-run the whole metadata fetch on token refresh, not just when the
+    // URL changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newUrl]);
 
   async function handleReorder(newOrder: PersonalVideo[]) {
@@ -276,6 +326,64 @@ function PersonalPlaylistEditorContent() {
     await movePersonalVideo(ownerId, playlistId, videoId, direction);
     setIsSorting(false);
   };
+
+  const missingDurationCount = React.useMemo(
+    () => videos.filter((v) => !v.durationSeconds && v.youtubeVideoId).length,
+    [videos]
+  );
+
+  // Backfills duration for videos saved before this app could fetch it
+  // (oEmbed / playlistItems never return duration — only a separate,
+  // batched Data API call does). Safe to run repeatedly; only touches
+  // videos currently missing a duration.
+  const [fixingDurations, setFixingDurations] = React.useState(false);
+  async function handleFixMissingDurations() {
+    const missing = videos.filter((v) => !v.durationSeconds && v.youtubeVideoId);
+    if (missing.length === 0) {
+      toast.success("Every video already has a duration.");
+      return;
+    }
+    setFixingDurations(true);
+    try {
+      const idToken = await user?.getIdToken?.();
+      const durations: Record<string, number> = {};
+      let lastError: string | null = null;
+      for (let start = 0; start < missing.length; start += 50) {
+        const batch = missing.slice(start, start + 50);
+        const ids = batch.map((v) => v.youtubeVideoId as string).join(",");
+        const res = await fetch(`/api/youtube-duration?ids=${encodeURIComponent(ids)}`, {
+          headers: idToken ? { Authorization: `Bearer ${idToken}` } : {},
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          lastError = data?.error || `Request failed (${res.status})`;
+          continue;
+        }
+        Object.assign(durations, data?.durations || {});
+        if (data?.error) lastError = data.error;
+      }
+
+      // durations is keyed by YouTube video ID, not our Firestore video doc
+      // ID — map back to doc IDs before writing.
+      const byDocId: Record<string, number> = {};
+      missing.forEach((v) => {
+        if (v.youtubeVideoId && durations[v.youtubeVideoId] !== undefined) byDocId[v.id] = durations[v.youtubeVideoId];
+      });
+
+      const fixedCount = Object.keys(byDocId).length;
+      if (fixedCount === 0) {
+        toast.error(lastError ? `Couldn't fetch durations: ${lastError}` : "Couldn't fetch durations — check that YOUTUBE_API_KEY is configured.");
+        return;
+      }
+
+      await bulkSetPersonalVideoDurations(ownerId, playlistId, byDocId);
+      setVideos((current) => current.map((v) => (byDocId[v.id] !== undefined ? { ...v, durationSeconds: byDocId[v.id] } : v)));
+      const skipped = missing.length - fixedCount;
+      toast.success(`Fixed duration for ${fixedCount} of ${missing.length} video${missing.length === 1 ? "" : "s"}.${skipped > 0 && lastError ? ` ${skipped} skipped: ${lastError}` : ""}`);
+    } finally {
+      setFixingDurations(false);
+    }
+  }
 
   async function handleAddVideo() {
     const candidate = newUrl.trim();
@@ -362,9 +470,29 @@ function PersonalPlaylistEditorContent() {
         return ((priorityRank[(b.priority ?? "null") as keyof typeof priorityRank] ?? 0) - (priorityRank[(a.priority ?? "null") as keyof typeof priorityRank] ?? 0)) || (a.order ?? 0) - (b.order ?? 0);
       }
       if (nextMode === "duration") return (b.durationSeconds ?? 0) - (a.durationSeconds ?? 0);
+      if (nextMode === "title-natural") return naturalTitleCollator.compare(a.title, b.title);
       return (a.order ?? 0) - (b.order ?? 0);
     });
     setVideos(sorted);
+  }
+
+  // Lets a big bulk reorder (e.g. "sort ~165 videos by their Lesson/Part
+  // number") happen in one click instead of drag-and-dropping every video:
+  // pick a temporary sort mode, eyeball that it looks right, then persist
+  // whatever order is currently on screen as the new Custom order.
+  async function handleSaveAsCustomOrder() {
+    if (!playlist || sortMode === "custom") return;
+    const ids = videos.map((v) => v.id);
+    setIsSorting(true);
+    try {
+      await reorderPersonalVideos(ownerId, playlistId, ids);
+      await setPersonalPlaylistSortMode(ownerId, playlistId, "custom");
+      setPlaylist((p) => (p ? { ...p, sortOrder: ids, sortMode: "custom" } : p));
+      setSortMode("custom");
+      toast.success("Saved this order as the playlist's Custom order");
+    } finally {
+      setIsSorting(false);
+    }
   }
 
   async function handleSavePlaylistDetails() {
@@ -526,6 +654,11 @@ function PersonalPlaylistEditorContent() {
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /> Add Video</Button>
                     <Button variant="outline" size="sm" asChild><Link href={`/my-playlists/import?target=${playlistId}`}><Download className="h-4 w-4" /> Import Playlist</Link></Button>
+                    {missingDurationCount > 0 && (
+                      <Button variant="outline" size="sm" onClick={handleFixMissingDurations} disabled={fixingDurations}>
+                        <Clock className="h-4 w-4" /> {fixingDurations ? "Fixing durations…" : `Fix ${missingDurationCount} missing durations`}
+                      </Button>
+                    )}
                     <Button variant="outline" size="sm" onClick={handleSharePlaylist} disabled={shareBusy}>Share</Button>
                     <Button variant="outline" size="sm" onClick={() => setDetailsOpen(true)}><Pencil className="h-4 w-4" /> Edit</Button>
                     <Button variant="destructive" size="sm" onClick={handleDeletePlaylist}><Trash2 className="h-4 w-4" /> Delete</Button>
@@ -538,6 +671,7 @@ function PersonalPlaylistEditorContent() {
                   <span>{videos.length} videos</span>
                   <span>{watchedCount} watched</span>
                   <span>{unwatchedCount} unwatched</span>
+                  {totalDurationSeconds > 0 && <span>{formatWatchTime(totalDurationSeconds)} total</span>}
                 </div>
 
                 <div className="space-y-2">
@@ -592,9 +726,14 @@ function PersonalPlaylistEditorContent() {
             </div>
 
             {sortMode !== "custom" && (
-              <p className="text-xs text-muted-foreground">
-                Drag-to-reorder is only available in <strong>Custom</strong> sort. Switch the Sort dropdown back to Custom to drag videos.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-border px-3 py-2">
+                <p className="text-xs text-muted-foreground">
+                  Drag-to-reorder is only available in <strong>Custom</strong> sort. Looks right? Save it instead of dragging every video.
+                </p>
+                <Button size="sm" variant="outline" onClick={handleSaveAsCustomOrder} disabled={isSorting}>
+                  Save this order as Custom
+                </Button>
+              </div>
             )}
 
             {selectedIds.length > 0 && (
