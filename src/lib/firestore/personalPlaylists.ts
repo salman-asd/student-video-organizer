@@ -71,6 +71,21 @@ export async function setPersonalPlaylistSortMode(
   });
 }
 
+/** Sets "advanced-keywords" sort mode together with the keyword list it
+ *  should sort by, in one write, so the playlist never ends up saved in
+ *  "advanced-keywords" mode without keywords to back it. */
+export async function setPersonalPlaylistSortKeywords(
+  ownerId: string,
+  playlistId: string,
+  sortKeywords: string[],
+) {
+  await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId), {
+    sortMode: "advanced-keywords" as PersonalPlaylistSortMode,
+    sortKeywords,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 /** Overwrites (not increments) the playlist's stored total duration to
  *  match a freshly computed sum. `totalDurationSeconds` is normally kept
  *  in sync incrementally by the various add/remove/duration-backfill

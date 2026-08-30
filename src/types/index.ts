@@ -251,6 +251,7 @@ export type PersonalPlaylistSortMode =
   | "title-desc"
   | "title-natural"
   | "lesson-part-page"
+  | "advanced-keywords"
   | "watched-first"
   | "unwatched-first"
   | "priority"
@@ -264,6 +265,11 @@ export interface PersonalPlaylist {
   visibility: PersonalPlaylistVisibility;
   sortMode?: PersonalPlaylistSortMode;
   sortOrder?: string[];
+  /** User-defined keywords for "advanced-keywords" sort mode, in priority
+   *  order (e.g. ["Chapter", "Unit"] sorts by Chapter number first, Unit
+   *  number as a tiebreaker). Only meaningful when sortMode is
+   *  "advanced-keywords"; see src/lib/keywordSort.ts. */
+  sortKeywords?: string[];
   videoCount: number;
   totalDurationSeconds?: number;
   createdAt: Timestamp | null;
@@ -302,9 +308,24 @@ export interface PersonalVideo {
 export interface Goal {
   id: string;
   title: string;
+  /** Optional free-text detail — "why this matters", success criteria, etc. */
+  notes?: string;
+  /** ISO date string ("YYYY-MM-DD"), so it sorts/compares as plain text
+   *  without needing a Firestore Timestamp for a date-only value the user
+   *  picked from a plain <input type="date">. */
   targetDate?: string | null;
+  priority?: PriorityLevel;
   completed: boolean;
+  completedAt?: Timestamp | null;
+  /** Optional link to one of the user's own personal playlists — lets the
+   *  Goals page show real watched/total progress instead of a plain
+   *  checkbox, e.g. "Finish the ASP.NET Core playlist" tracking itself. The
+   *  title is denormalized so the list can render it without an extra
+   *  fetch per goal; it's cosmetic only; the id is what's authoritative. */
+  linkedPlaylistId?: string | null;
+  linkedPlaylistTitle?: string | null;
   createdAt: Timestamp | null;
+  updatedAt?: Timestamp | null;
 }
 
 /** Convenience shape combining shared Video + the current user's state,
