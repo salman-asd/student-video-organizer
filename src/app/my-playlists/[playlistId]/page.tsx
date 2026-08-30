@@ -38,6 +38,7 @@ import {
   validateVideoUrl,
 } from "@/lib/video-platforms";
 import { formatDuration, formatWatchTime } from "@/lib/utils";
+import { compareLessonPartPage } from "@/lib/lessonPartPageSort";
 import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibility, PersonalVideo, ShareVisibility } from "@/types";
 import { ArrowLeft, CheckCircle2, ChevronUp, ChevronDown, Clock, Download, GripVertical, Lock, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -54,7 +55,8 @@ const PERSONAL_PLAYLIST_SORT_LABELS: Record<PersonalPlaylistSortMode, string> = 
   oldest: "Oldest added",
   "title-asc": "Title A-Z",
   "title-desc": "Title Z-A",
-  "title-natural": "Title (Lesson/Part number)",
+  "title-natural": "Title (numeric-aware)",
+  "lesson-part-page": "Lesson → Part → Page",
   "watched-first": "Watched first",
   "unwatched-first": "Unwatched first",
   priority: "Priority",
@@ -166,6 +168,7 @@ function PersonalPlaylistEditorContent() {
       return diff || (a.order ?? 0) - (b.order ?? 0);
     });
     if (sortMode === "title-natural") return source.sort((a, b) => naturalTitleCollator.compare(a.title, b.title));
+    if (sortMode === "lesson-part-page") return source.sort((a, b) => compareLessonPartPage(a.title, b.title));
     if (sortMode === "duration") return source.sort((a, b) => (b.durationSeconds ?? 0) - (a.durationSeconds ?? 0));
     return source.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }, [videos, sortMode, playlist?.sortOrder]);
@@ -471,6 +474,7 @@ function PersonalPlaylistEditorContent() {
       }
       if (nextMode === "duration") return (b.durationSeconds ?? 0) - (a.durationSeconds ?? 0);
       if (nextMode === "title-natural") return naturalTitleCollator.compare(a.title, b.title);
+      if (nextMode === "lesson-part-page") return compareLessonPartPage(a.title, b.title);
       return (a.order ?? 0) - (b.order ?? 0);
     });
     setVideos(sorted);
