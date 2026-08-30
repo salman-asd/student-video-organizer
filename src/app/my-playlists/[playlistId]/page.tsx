@@ -25,7 +25,7 @@ import {
   bulkTogglePersonalVideoFavorite, bulkTogglePersonalVideoWatchLater, bulkSetPersonalVideoDurations, deletePersonalPlaylist,
   findDuplicatePersonalVideoUrl, getPersonalPlaylist, listPersonalVideos, movePersonalVideo,
   removePersonalVideo, reorderPersonalVideos, renamePersonalPlaylist, setPersonalPlaylistSortMode,
-  syncPersonalPlaylistTotalDuration, updatePersonalVideoMeta,
+  setPersonalPlaylistSortKeywords, syncPersonalPlaylistTotalDuration, updatePersonalVideoMeta,
 } from "@/lib/firestore/personalPlaylists";
 import { db } from "@/lib/firebase";
 import { createOrUpdatePlaylistShare } from "@/lib/firestore/shares";
@@ -39,6 +39,7 @@ import {
 } from "@/lib/video-platforms";
 import { formatDuration, formatWatchTime } from "@/lib/utils";
 import { compareLessonPartPage } from "@/lib/lessonPartPageSort";
+import { compareByKeywords, parseKeywordInput } from "@/lib/keywordSort";
 import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibility, PersonalVideo, ShareVisibility } from "@/types";
 import { ArrowLeft, CheckCircle2, ChevronUp, ChevronDown, Clock, Download, GripVertical, Lock, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -57,6 +58,7 @@ const PERSONAL_PLAYLIST_SORT_LABELS: Record<PersonalPlaylistSortMode, string> = 
   "title-desc": "Title Z-A",
   "title-natural": "Title (numeric-aware)",
   "lesson-part-page": "Lesson → Part → Page",
+  "advanced-keywords": "Advanced (custom keywords)",
   "watched-first": "Watched first",
   "unwatched-first": "Unwatched first",
   priority: "Priority",
@@ -93,6 +95,9 @@ function PersonalPlaylistEditorContent() {
   const [detailDescription, setDetailDescription] = React.useState("");
   const [detailVisibility, setDetailVisibility] = React.useState<PersonalPlaylistVisibility>("private");
   const [sortMode, setSortMode] = React.useState<PersonalPlaylistSortMode>("custom");
+  const [sortKeywords, setSortKeywords] = React.useState<string[]>([]);
+  const [keywordDialogOpen, setKeywordDialogOpen] = React.useState(false);
+  const [keywordDraft, setKeywordDraft] = React.useState("");
   const [isSorting, setIsSorting] = React.useState(false);
   const [shareOpen, setShareOpen] = React.useState(false);
   const [shareVisibility, setShareVisibility] = React.useState<ShareVisibility>("private");
@@ -139,6 +144,7 @@ function PersonalPlaylistEditorContent() {
     setDetailDescription(playlist.description || "");
     setDetailVisibility(playlist.visibility || "private");
     setSortMode(playlist.sortMode || "custom");
+    setSortKeywords(playlist.sortKeywords || []);
   }, [playlist]);
 
   const sortedVideos = React.useMemo(() => {
@@ -169,9 +175,10 @@ function PersonalPlaylistEditorContent() {
     });
     if (sortMode === "title-natural") return source.sort((a, b) => naturalTitleCollator.compare(a.title, b.title));
     if (sortMode === "lesson-part-page") return source.sort((a, b) => compareLessonPartPage(a.title, b.title));
+    if (sortMode === "advanced-keywords") return source.sort((a, b) => compareByKeywords(a.title, b.title, sortKeywords));
     if (sortMode === "duration") return source.sort((a, b) => (b.durationSeconds ?? 0) - (a.durationSeconds ?? 0));
     return source.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  }, [videos, sortMode, playlist?.sortOrder]);
+  }, [videos, sortMode, sortKeywords, playlist?.sortOrder]);
 
   const filteredVideos = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -445,6 +452,22 @@ function PersonalPlaylistEditorContent() {
 
   async function handleSortModeChange(nextMode: PersonalPlaylistSortMode) {
     if (!playlist) return;
+
+    // "Advanced" needs to know WHICH keywords to sort by first, so it opens
+    // a dialog instead of applying immediately. If keywords were already
+    // chosen before (re-selecting the mode), just re-apply them.
+    if (nextMode === "advanced-keywords") {
+      if (sortKeywords.length > 0) {
+        setSortMode(nextMode);
+        await setPersonalPlaylistSortMode(ownerId, playlistId, nextMode);
+        setVideos((current) => [...current].sort((a, b) => compareByKeywords(a.title, b.title, sortKeywords)));
+        return;
+      }
+      setKeywordDraft("");
+      setKeywordDialogOpen(true);
+      return;
+    }
+
     setSortMode(nextMode);
     await setPersonalPlaylistSortMode(ownerId, playlistId, nextMode);
     if (nextMode === "custom") {
@@ -478,6 +501,25 @@ function PersonalPlaylistEditorContent() {
       return (a.order ?? 0) - (b.order ?? 0);
     });
     setVideos(sorted);
+  }
+
+  // Applies (and persists) the keyword list entered in the "Advanced sort"
+  // dialog — used both the first time a playlist switches into
+  // advanced-keywords mode and whenever the user reopens the dialog to
+  // change the keywords later.
+  async function handleApplyKeywordSort() {
+    if (!playlist) return;
+    const keywords = parseKeywordInput(keywordDraft);
+    if (keywords.length === 0) {
+      toast.error("Enter at least one keyword to sort by");
+      return;
+    }
+    setSortKeywords(keywords);
+    setSortMode("advanced-keywords");
+    setKeywordDialogOpen(false);
+    await setPersonalPlaylistSortKeywords(ownerId, playlistId, keywords);
+    setVideos((current) => [...current].sort((a, b) => compareByKeywords(a.title, b.title, keywords)));
+    toast.success(`Sorted by ${keywords.join(" → ")}`);
   }
 
   // Lets a big bulk reorder (e.g. "sort ~165 videos by their Lesson/Part
@@ -732,11 +774,28 @@ function PersonalPlaylistEditorContent() {
             {sortMode !== "custom" && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-border px-3 py-2">
                 <p className="text-xs text-muted-foreground">
+                  {sortMode === "advanced-keywords" && sortKeywords.length > 0 && (
+                    <>Sorting by <strong>{sortKeywords.join(" → ")}</strong>. </>
+                  )}
                   Drag-to-reorder is only available in <strong>Custom</strong> sort. Looks right? Save it instead of dragging every video.
                 </p>
-                <Button size="sm" variant="outline" onClick={handleSaveAsCustomOrder} disabled={isSorting}>
-                  Save this order as Custom
-                </Button>
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  {sortMode === "advanced-keywords" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setKeywordDraft(sortKeywords.join(", "));
+                        setKeywordDialogOpen(true);
+                      }}
+                    >
+                      Edit keywords
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" onClick={handleSaveAsCustomOrder} disabled={isSorting}>
+                    Save this order as Custom
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -936,6 +995,45 @@ function PersonalPlaylistEditorContent() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
             <Button onClick={handleSaveEdit}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={keywordDialogOpen}
+        onOpenChange={(open) => {
+          setKeywordDialogOpen(open);
+          // Cancelling before ever choosing keywords shouldn't leave the
+          // dropdown stuck on "Advanced" with nothing to actually sort by.
+          if (!open && sortKeywords.length === 0 && sortMode === "advanced-keywords") {
+            setSortMode("custom");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader><DialogTitle>Advanced sort — sort by keywords</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Type the words that appear in this playlist&apos;s video titles, in priority order. For titles
+              like <em>&quot;Chapter 3 - Unit 2&quot;</em>, enter <strong>Chapter, Unit</strong> — videos are grouped by the
+              Chapter number first, then by Unit number as a tiebreaker. Titles with no match are placed
+              alphabetically at the end.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Keywords, in priority order (comma-separated)</Label>
+              <Input
+                value={keywordDraft}
+                onChange={(e) => setKeywordDraft(e.target.value)}
+                placeholder="e.g. Chapter, Unit, Page"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleApplyKeywordSort();
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setKeywordDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleApplyKeywordSort}>Apply sort</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

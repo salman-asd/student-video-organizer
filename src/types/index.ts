@@ -251,6 +251,7 @@ export type PersonalPlaylistSortMode =
   | "title-desc"
   | "title-natural"
   | "lesson-part-page"
+  | "advanced-keywords"
   | "watched-first"
   | "unwatched-first"
   | "priority"
@@ -264,6 +265,11 @@ export interface PersonalPlaylist {
   visibility: PersonalPlaylistVisibility;
   sortMode?: PersonalPlaylistSortMode;
   sortOrder?: string[];
+  /** User-defined keywords for "advanced-keywords" sort mode, in priority
+   *  order (e.g. ["Chapter", "Unit"] sorts by Chapter number first, Unit
+   *  number as a tiebreaker). Only meaningful when sortMode is
+   *  "advanced-keywords"; see src/lib/keywordSort.ts. */
+  sortKeywords?: string[];
   videoCount: number;
   totalDurationSeconds?: number;
   createdAt: Timestamp | null;
