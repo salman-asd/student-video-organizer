@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration } from "@/lib/utils";
 import { getVideoWatchHref } from "@/lib/videoRoutes";
 import type { VideoWithState } from "@/types";
@@ -46,32 +47,46 @@ export function VideoListRow({
 
       <div className="flex items-center gap-1">
         {onToggleFavorite && (
-          <Button variant="ghost" size="icon" onClick={onToggleFavorite} aria-label="Toggle favorite">
-            <Star className={video.state?.isFavorite ? "h-4 w-4 fill-accent text-accent" : "h-4 w-4"} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onToggleFavorite} aria-label="Toggle favorite">
+                <Star className={video.state?.isFavorite ? "h-4 w-4 fill-accent text-accent" : "h-4 w-4"} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{video.state?.isFavorite ? "Remove favorite" : "Add favorite"}</TooltipContent>
+          </Tooltip>
         )}
         {onSetPriority && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="Set priority"><Flag className="h-4 w-4" /></Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => onSetPriority("high")}>🔴 High</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onSetPriority("medium")}>🟡 Medium</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onSetPriority("low")}>🟢 Low</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onSetPriority(null)}>Clear priority</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Tooltip>
+            <DropdownMenu>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" aria-label="Set priority"><Flag className="h-4 w-4" /></Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top">Set priority</TooltipContent>
+            </DropdownMenu>
+          </Tooltip>
         )}
         {onMarkWatched && (
-          <Button variant="ghost" size="icon" onClick={onMarkWatched} aria-label="Mark watched">
-            <CheckCircle2 className={video.state?.status === "completed" ? "h-4 w-4 text-success" : "h-4 w-4"} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onMarkWatched} aria-label="Mark watched">
+                <CheckCircle2 className={video.state?.status === "completed" ? "h-4 w-4 text-success" : "h-4 w-4"} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">{video.state?.status === "completed" ? "Mark not watched" : "Mark watched"}</TooltipContent>
+          </Tooltip>
         )}
         {onRemove && (
-          <Button variant="ghost" size="icon" onClick={onRemove} aria-label="Remove">
-            <X className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon" onClick={onRemove} aria-label="Remove">
+                <X className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Remove video</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>
