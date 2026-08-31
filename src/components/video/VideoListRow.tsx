@@ -49,7 +49,13 @@ export function VideoListRow({
         {onToggleFavorite && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={onToggleFavorite} aria-label="Toggle favorite">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onToggleFavorite}
+                aria-label={video.state?.isFavorite ? "Remove favorite" : "Add favorite"}
+                title={video.state?.isFavorite ? "Remove favorite" : "Add favorite"}
+              >
                 <Star className={video.state?.isFavorite ? "h-4 w-4 fill-accent text-accent" : "h-4 w-4"} />
               </Button>
             </TooltipTrigger>
@@ -61,7 +67,9 @@ export function VideoListRow({
             <DropdownMenu>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" aria-label="Set priority"><Flag className="h-4 w-4" /></Button>
+                  <Button variant="ghost" size="icon" aria-label="Set priority" title="Set priority">
+                    <Flag className="h-4 w-4" />
+                  </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
               <TooltipContent side="top">Set priority</TooltipContent>
@@ -71,7 +79,13 @@ export function VideoListRow({
         {onMarkWatched && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={onMarkWatched} aria-label="Mark watched">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onMarkWatched}
+                aria-label={video.state?.status === "completed" ? "Mark not watched" : "Mark watched"}
+                title={video.state?.status === "completed" ? "Mark not watched" : "Mark watched"}
+              >
                 <CheckCircle2 className={video.state?.status === "completed" ? "h-4 w-4 text-success" : "h-4 w-4"} />
               </Button>
             </TooltipTrigger>

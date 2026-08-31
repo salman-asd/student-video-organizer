@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDuration, cn } from "@/lib/utils";
 import { parseLessonPartPage } from "@/lib/lessonPartPageSort";
 import type { PersonalVideo, PriorityLevel } from "@/types";
@@ -106,24 +107,42 @@ export function PlaylistVideoRow({
             aria-hidden
           />
         )}
-        <Button
-          variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleFavorite}
-          aria-label={video.isFavorite ? "Remove from favorites" : "Add to favorites"}
-        >
-          <Star className={cn("h-4 w-4", video.isFavorite && "fill-accent text-accent")} />
-        </Button>
-        <Button
-          variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleWatchLater}
-          aria-label={video.isWatchLater ? "Remove from Watch Later" : "Add to Watch Later"}
-        >
-          <Clock className={cn("h-4 w-4", video.isWatchLater && "text-accent")} />
-        </Button>
-        <Button
-          variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleWatched}
-          aria-label={isWatched ? "Mark unwatched" : "Mark watched"}
-        >
-          {isWatched ? <CheckCircle2 className="h-4 w-4 text-success" /> : <Circle className="h-4 w-4" />}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleFavorite}
+              aria-label={video.isFavorite ? "Remove from favorites" : "Add to favorites"}
+              title={video.isFavorite ? "Remove from favorites" : "Add to favorites"}
+            >
+              <Star className={cn("h-4 w-4", video.isFavorite && "fill-accent text-accent")} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{video.isFavorite ? "Remove from favorites" : "Add to favorites"}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleWatchLater}
+              aria-label={video.isWatchLater ? "Remove from Watch Later" : "Add to Watch Later"}
+              title={video.isWatchLater ? "Remove from Watch Later" : "Add to Watch Later"}
+            >
+              <Clock className={cn("h-4 w-4", video.isWatchLater && "text-accent")} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{video.isWatchLater ? "Remove from Watch Later" : "Add to Watch Later"}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost" size="icon" className="h-8 w-8" onClick={onToggleWatched}
+              aria-label={isWatched ? "Mark unwatched" : "Mark watched"}
+              title={isWatched ? "Mark unwatched" : "Mark watched"}
+            >
+              {isWatched ? <CheckCircle2 className="h-4 w-4 text-success" /> : <Circle className="h-4 w-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top">{isWatched ? "Mark unwatched" : "Mark watched"}</TooltipContent>
+        </Tooltip>
       </div>
 
       <DropdownMenu>
