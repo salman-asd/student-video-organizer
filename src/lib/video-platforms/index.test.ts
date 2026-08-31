@@ -61,6 +61,33 @@ describe("video platform detection and URL normalization", () => {
     assert.match(result?.embedUrl ?? "", /facebook\.com\/plugins\/video\.php/i);
   });
 
+  it("detects facebook reel and /videos/ URLs", () => {
+    assert.equal(detectVideoPlatform("https://www.facebook.com/reel/9876543210"), "facebook");
+    assert.equal(extractExternalVideoId("https://www.facebook.com/reel/9876543210"), "9876543210");
+
+    const videosResult = normalizeVideoUrl("https://www.facebook.com/SomePage/videos/1122334455/");
+    assert.ok(videosResult);
+    assert.equal(videosResult?.canonicalUrl, "https://www.facebook.com/watch/?v=1122334455");
+  });
+
+  it("recognizes facebook short share links as pending, not rejected", () => {
+    // fb.watch and /share/v|r/ links carry an opaque token, not the numeric
+    // video id, so they can't be resolved to a canonical URL client-side —
+    // but they should still validate as a real, recognized Facebook URL
+    // rather than being rejected outright or misclassified as "generic".
+    assert.equal(detectVideoPlatform("https://fb.watch/abC123xyz/"), "facebook");
+    assert.equal(validateVideoUrl("https://fb.watch/abC123xyz/"), true);
+    assert.equal(extractExternalVideoId("https://fb.watch/abC123xyz/"), null);
+
+    const result = normalizeVideoUrl("https://fb.watch/abC123xyz/");
+    assert.ok(result);
+    assert.equal(result?.platform, "facebook");
+    assert.equal(result?.embedUrl, null);
+
+    assert.equal(detectVideoPlatform("https://www.facebook.com/share/v/aBcDeFg/"), "facebook");
+    assert.equal(validateVideoUrl("https://www.facebook.com/share/v/aBcDeFg/"), true);
+  });
+
   it("detects vimeo video URLs", () => {
     const result = normalizeVideoUrl("https://vimeo.com/123456789");
     assert.ok(result);

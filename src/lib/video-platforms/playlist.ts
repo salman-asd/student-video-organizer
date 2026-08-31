@@ -1,6 +1,14 @@
 import type { VideoPlatform } from "@/types";
 import { parseVideoUrl } from "./types";
 import { fetchYouTubeDurations } from "./youtubeDuration";
+import { extractFacebookCollectionId, fetchFacebookCollection } from "./facebookGraph";
+
+// Extend this union (and register a new ExternalPlaylistProvider below) to
+// add another platform's collection/playlist import — e.g. "vimeo" for
+// Vimeo showcases or "tiktok" for TikTok collections. Nothing else in this
+// file, the API route, or the "Import Playlist" UI needs to know which
+// provider is active; they all dispatch off this list.
+export type ExternalPlaylistSourceProvider = "youtube" | "facebook";
 
 export interface ExternalPlaylistVideo {
   title: string;
@@ -16,7 +24,7 @@ export interface ExternalPlaylistVideo {
 }
 
 export interface ExternalPlaylistPreview {
-  provider: "youtube";
+  provider: ExternalPlaylistSourceProvider;
   title: string;
   description?: string | null;
   thumbnailUrl?: string | null;
@@ -27,7 +35,7 @@ export interface ExternalPlaylistPreview {
 }
 
 export interface ExternalPlaylistProvider {
-  provider: "youtube";
+  provider: ExternalPlaylistSourceProvider;
   detect(url: string): boolean;
   extractPlaylistId(url: string): string | null;
   fetchPreview(url: string): Promise<ExternalPlaylistPreview>;
@@ -168,8 +176,54 @@ export class YouTubePlaylistProvider implements ExternalPlaylistProvider {
   }
 }
 
+export class FacebookCollectionProvider implements ExternalPlaylistProvider {
+  provider: "facebook" = "facebook";
+
+  detect(url: string): boolean {
+    const parsed = parseVideoUrl(url);
+    if (!parsed) return false;
+    const host = parsed.hostname.toLowerCase();
+    if (host !== "facebook.com" && host !== "www.facebook.com" && host !== "m.facebook.com") return false;
+    return Boolean(extractFacebookCollectionId(parsed.toString()));
+  }
+
+  extractPlaylistId(url: string): string | null {
+    return extractFacebookCollectionId(url);
+  }
+
+  // Listing a Page's video collection has no public equivalent (unlike a
+  // single video's public embed) — it always goes through the Graph API
+  // with a Page access token. See facebookGraph.ts's module doc, case 4.
+  async fetchPreview(url: string): Promise<ExternalPlaylistPreview> {
+    const collection = await fetchFacebookCollection(url);
+
+    return {
+      provider: "facebook",
+      title: collection.title,
+      description: collection.description,
+      thumbnailUrl: collection.thumbnailUrl,
+      sourceUrl: url,
+      totalVideos: collection.videos.length,
+      unavailableCount: 0,
+      videos: collection.videos.map((video, index) => ({
+        title: video.title,
+        videoUrl: video.videoUrl,
+        youtubeVideoId: null,
+        thumbnailUrl: video.thumbnailUrl,
+        durationSeconds: video.durationSeconds ?? undefined,
+        description: video.description,
+        creator: null,
+        publishedAt: video.publishedAt,
+        platform: "facebook",
+        order: index,
+      })),
+    };
+  }
+}
+
 export const externalPlaylistProviders: ExternalPlaylistProvider[] = [
   new YouTubePlaylistProvider(),
+  new FacebookCollectionProvider(),
 ];
 
 export function detectExternalPlaylistProvider(url: string): ExternalPlaylistProvider | null {
@@ -181,7 +235,7 @@ export function detectExternalPlaylistProvider(url: string): ExternalPlaylistPro
 export async function fetchExternalPlaylistPreview(url: string): Promise<ExternalPlaylistPreview> {
   const provider = detectExternalPlaylistProvider(url);
   if (!provider) {
-    throw new Error("Unsupported playlist URL. Please paste a supported YouTube playlist link.");
+    throw new Error("Unsupported playlist URL. Please paste a YouTube playlist or Facebook collection link.");
   }
   return provider.fetchPreview(url);
 }

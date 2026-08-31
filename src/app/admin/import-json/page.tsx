@@ -82,7 +82,7 @@ function AdminImportJsonContent() {
 
   React.useEffect(() => { listPlaylists(true).then(setPlaylists); }, []);
 
-  async function parseJsonRows(input: string): Promise<{ valid: PreviewRow[]; invalid: Array<{index: number; reason: string}> }> {
+  async function parseJsonRows(input: string, idToken?: string | null): Promise<{ valid: PreviewRow[]; invalid: Array<{index: number; reason: string}> }> {
     const data = JSON.parse(input);
     const arr: RawRow[] = Array.isArray(data) ? data : data.videos || data.items || [];
     if (!Array.isArray(arr)) throw new Error("Expected a JSON array of video objects.");
@@ -109,7 +109,11 @@ function AdminImportJsonContent() {
         continue;
       }
 
-      const metadata = await fetchVideoMetadata(candidateUrl);
+      // Facebook rows need an auth token for their metadata lookup (Graph
+      // API call behind /api/facebook-video — see video-metadata.ts); it's
+      // fetched once above and threaded through here rather than per-row.
+      // YouTube/Vimeo rows ignore it.
+      const metadata = await fetchVideoMetadata(candidateUrl, { idToken });
       const title = (item.title ?? item.Title ?? metadata?.title ?? "Untitled video").toString().trim() || "Untitled video";
       const ytId = extractYouTubeId(candidateUrl) ?? normalized.externalVideoId ?? null;
       const platform = detectVideoPlatform(candidateUrl) ?? normalized.platform;
@@ -136,7 +140,8 @@ function AdminImportJsonContent() {
     setSummary(null);
     void (async () => {
       try {
-        const { valid, invalid } = await parseJsonRows(raw);
+        const idToken = await user?.getIdToken?.().catch(() => null);
+        const { valid, invalid } = await parseJsonRows(raw, idToken);
         setRows(valid);
         setInvalidRows(invalid);
         if (!newPlaylistTitle && Array.isArray(JSON.parse(raw)) && JSON.parse(raw)[0]?.Playlist) {

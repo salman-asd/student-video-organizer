@@ -44,7 +44,15 @@ async function fetchOEmbed(url: string, endpoint: string): Promise<OEmbedRespons
   }
 }
 
-export async function fetchVideoMetadata(rawUrl: string): Promise<VideoMetadata | null> {
+export interface FetchVideoMetadataOptions {
+  /** Required for the Facebook branch — its Graph API call runs behind an
+   *  authenticated server route (see /api/facebook-video), the same way
+   *  the YouTube duration backfill is authenticated. Omit for YouTube/Vimeo,
+   *  which use fully public oEmbed endpoints and need no token. */
+  idToken?: string | null;
+}
+
+export async function fetchVideoMetadata(rawUrl: string, options: FetchVideoMetadataOptions = {}): Promise<VideoMetadata | null> {
   const trimmed = rawUrl.trim();
   if (!trimmed || !validateVideoUrl(trimmed)) return null;
 
@@ -96,9 +104,41 @@ export async function fetchVideoMetadata(rawUrl: string): Promise<VideoMetadata 
     }
   }
 
-  // Public metadata endpoints are unavailable for Facebook and generic/other video URLs,
-  // so the UI can keep the user in a manual-save flow without bypassing platform restrictions.
-  if (provider.platform === "facebook" || provider.platform === "generic") {
+  // Facebook has no public, unauthenticated metadata endpoint (see
+  // facebookGraph.ts) — fetching title/thumbnail/author requires the Graph
+  // API's oEmbed edge with an app access token, so that call happens
+  // server-side behind /api/facebook-video instead of directly here.
+  // Without a signed-in session (no idToken) there's nothing to call, so
+  // this falls straight through to the manual-entry UX, same as before.
+  if (provider.platform === "facebook") {
+    if (!options.idToken) return null;
+    try {
+      const res = await fetch(`/api/facebook-video?url=${encodeURIComponent(trimmed)}`, {
+        headers: { Authorization: `Bearer ${options.idToken}` },
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data?.metadata) return null;
+
+      return {
+        title: data.metadata.title || "Untitled video",
+        description: null,
+        creator: data.metadata.authorName ?? null,
+        thumbnailUrl: data.metadata.thumbnailUrl ?? null,
+        durationSeconds: null,
+        publishedAt: null,
+        platform: "facebook",
+        canonicalUrl: data.canonicalUrl || canonicalUrl,
+        originalWatchUrl: data.canonicalUrl || originalWatchUrl,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Generic/other video URLs have no metadata endpoint at all — the UI
+  // keeps the user in the manual-save flow.
+  if (provider.platform === "generic") {
     return null;
   }
 
