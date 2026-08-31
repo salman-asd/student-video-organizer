@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Progress } from "@/components/ui/progress";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { detectVideoPlatform, getExternalWatchAction } from "@/lib/video-platforms";
 import { getVideoWatchHref } from "@/lib/videoRoutes";
 import { cn, formatDuration } from "@/lib/utils";
@@ -135,45 +136,79 @@ export function VideoCard({
 
         {showActions && (
           <div className="mt-2 grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap">
-            <Button variant="outline" size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); window.location.href = watchHref; }}>
-              <Play className="h-3.5 w-3.5" /> Watch
-            </Button>
-            <Button variant={completed ? "accent" : "outline"} size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onToggleWatched?.(); }}>
-              <CheckCircle2 className="h-3.5 w-3.5" /> {completed ? "Watched" : "Mark"}
-            </Button>
-            <Button variant={video.state?.isFavorite ? "accent" : "outline"} size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onToggleFavorite?.(); }}>
-              <Star className={cn("h-3.5 w-3.5", video.state?.isFavorite && "fill-current")} /> Favorite
-            </Button>
-            <Button variant={video.state?.isWatchLater ? "accent" : "outline"} size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onToggleWatchLater?.(); }}>
-              <Clock className="h-3.5 w-3.5" /> Later
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant={video.state?.priority ? "accent" : "outline"} size="sm" className="h-8 w-full px-2.5 sm:w-auto">
-                  <Flag className="h-3.5 w-3.5" /> Priority
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); window.location.href = watchHref; }}>
+                  <Play className="h-3.5 w-3.5" /> Watch
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => onSetPriority?.("high")}>🔴 High</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onSetPriority?.("medium")}>🟡 Medium</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onSetPriority?.("low")}>🟢 Low</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onSetPriority?.(null)}>Clear</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </TooltipTrigger>
+              <TooltipContent side="top">Open video</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant={completed ? "accent" : "outline"} size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onToggleWatched?.(); }}>
+                  <CheckCircle2 className="h-3.5 w-3.5" /> {completed ? "Watched" : "Mark"}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{completed ? "Mark as not watched" : "Mark as watched"}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant={video.state?.isFavorite ? "accent" : "outline"} size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onToggleFavorite?.(); }}>
+                  <Star className={cn("h-3.5 w-3.5", video.state?.isFavorite && "fill-current")} /> Favorite
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{video.state?.isFavorite ? "Remove favorite" : "Add favorite"}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant={video.state?.isWatchLater ? "accent" : "outline"} size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onToggleWatchLater?.(); }}>
+                  <Clock className="h-3.5 w-3.5" /> Later
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{video.state?.isWatchLater ? "Remove from watch later" : "Add to watch later"}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <DropdownMenu>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant={video.state?.priority ? "accent" : "outline"} size="sm" className="h-8 w-full px-2.5 sm:w-auto">
+                      <Flag className="h-3.5 w-3.5" /> Priority
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="top">Set priority</TooltipContent>
+              </DropdownMenu>
+            </Tooltip>
             {onAddToPlaylist && (
-              <Button variant="outline" size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onAddToPlaylist(); }}>
-                <Plus className="h-3.5 w-3.5" /> Add
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onAddToPlaylist(); }}>
+                    <Plus className="h-3.5 w-3.5" /> Add
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Add to playlist</TooltipContent>
+              </Tooltip>
             )}
             {onShare && (
-              <Button variant="outline" size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onShare(); }}>
-                <Share2 className="h-3.5 w-3.5" /> Share
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 w-full px-2.5 sm:w-auto" onClick={(e) => { e.preventDefault(); onShare(); }}>
+                    <Share2 className="h-3.5 w-3.5" /> Share
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Share video</TooltipContent>
+              </Tooltip>
             )}
             {onDelete && (
-              <Button variant="outline" size="sm" className="h-8 w-full px-2.5 text-destructive sm:w-auto" onClick={(e) => { e.preventDefault(); onDelete(); }}>
-                <Trash2 className="h-3.5 w-3.5" /> Delete
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 w-full px-2.5 text-destructive sm:w-auto" onClick={(e) => { e.preventDefault(); onDelete(); }}>
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Delete video</TooltipContent>
+              </Tooltip>
             )}
           </div>
         )}
