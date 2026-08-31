@@ -16,8 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   createPersonalPlaylist, listPersonalPlaylists, bulkAddVideosToPersonalPlaylist,
 } from "@/lib/firestore/personalPlaylists";
-import type { PersonalPlaylist } from "@/types";
-import { ArrowLeft, Youtube, Upload, CheckCircle2 } from "lucide-react";
+import { detectExternalPlaylistProvider } from "@/lib/video-platforms/playlist";
+import type { PersonalPlaylist, VideoPlatform } from "@/types";
+import { ArrowLeft, Youtube, Facebook, Upload, CheckCircle2, Link2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface PreviewVideo {
@@ -26,10 +27,12 @@ interface PreviewVideo {
   videoUrl: string;
   thumbnailUrl: string;
   durationSeconds: number | null;
+  platform: VideoPlatform;
   order: number;
 }
 
 interface ImportPreview {
+  provider: "youtube" | "facebook";
   title: string;
   description: string;
   thumbnailUrl: string;
@@ -38,6 +41,15 @@ interface ImportPreview {
   unavailableCount: number;
   videos: PreviewVideo[];
 }
+
+// Adding a new provider (Vimeo showcases, TikTok collections, ...) means:
+// registering an ExternalPlaylistProvider in video-platforms/playlist.ts,
+// then adding one entry here. Nothing else on this page changes — the
+// fetch call, the import logic, and the results UI are all provider-agnostic.
+const PROVIDER_UI: Record<"youtube" | "facebook", { label: string; icon: typeof Youtube; placeholder: string }> = {
+  youtube: { label: "YouTube playlist", icon: Youtube, placeholder: "https://www.youtube.com/playlist?list=..." },
+  facebook: { label: "Facebook collection", icon: Facebook, placeholder: "https://www.facebook.com/PageName/videos/collection/..." },
+};
 
 export default function ImportYouTubePlaylistPage() {
   return (
@@ -65,37 +77,49 @@ function ImportContent() {
     listPersonalPlaylists(user.uid).then(setPlaylists).catch(() => setPlaylists([]));
   }, [user?.uid]);
 
+  // Detected purely to drive the placeholder/icon before the user hits
+  // Fetch — the actual provider used for the import comes back from the
+  // API response (`data.provider`), which is authoritative.
+  const detectedProvider = React.useMemo(() => {
+    const trimmed = url.trim();
+    if (!trimmed) return null;
+    return detectExternalPlaylistProvider(trimmed)?.provider ?? null;
+  }, [url]);
+  const activeProviderUi = PROVIDER_UI[detectedProvider ?? "youtube"];
+
   async function handleFetch() {
     setError(null);
     setResult(null);
     const trimmed = url.trim();
     if (!trimmed) {
-      setError("Paste a YouTube playlist URL to continue.");
+      setError("Paste a YouTube playlist or Facebook collection URL to continue.");
       return;
     }
 
     setFetching(true);
     try {
       const idToken = await user?.getIdToken?.();
-      const res = await fetch(`/api/youtube-playlist?url=${encodeURIComponent(trimmed)}`, {
+      const res = await fetch(`/api/external-playlist?url=${encodeURIComponent(trimmed)}`, {
         headers: idToken ? { Authorization: `Bearer ${idToken}` } : {},
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch playlist");
 
       const nextPreview: ImportPreview = {
+        provider: data.provider === "facebook" ? "facebook" : "youtube",
         title: data.title || "Imported playlist",
         description: data.description || "",
         thumbnailUrl: data.thumbnailUrl || "",
         sourceUrl: data.sourceUrl || trimmed,
         totalVideos: Number(data.totalVideos ?? data.videos?.length ?? 0),
         unavailableCount: Number(data.unavailableCount ?? 0),
-        videos: Array.isArray(data.videos) ? data.videos.map((video: PreviewVideo) => ({
+        videos: Array.isArray(data.videos) ? data.videos.map((video: any) => ({
           title: video.title,
           youtubeVideoId: video.youtubeVideoId || null,
           videoUrl: video.videoUrl,
           thumbnailUrl: video.thumbnailUrl || "",
           durationSeconds: typeof video.durationSeconds === "number" ? video.durationSeconds : null,
+          platform: (video.platform || "generic") as VideoPlatform,
           order: video.order ?? 0,
         })) : [],
       };
@@ -132,7 +156,7 @@ function ImportContent() {
           youtubeVideoId: video.youtubeVideoId,
           thumbnailUrl: video.thumbnailUrl,
           durationSeconds: video.durationSeconds ?? undefined,
-          platform: "youtube" as const,
+          platform: video.platform,
         }))
       );
       const duplicates = preview.videos.length - imported;
@@ -162,25 +186,33 @@ function ImportContent() {
             <ArrowLeft className="h-4 w-4" /> Back to My Playlists
           </Link>
           <h1 className="mt-2 flex items-center gap-2 font-display text-2xl font-semibold">
-            <Youtube className="h-5 w-5 text-accent" /> Import YouTube Playlist
+            <activeProviderUi.icon className="h-5 w-5 text-accent" /> Import Playlist / Collection
           </h1>
           <p className="text-sm text-muted-foreground">
-            Paste a YouTube playlist link to copy its videos into one of your own personal playlists. This is a one-time import —
-            the app never re-syncs with the original playlist afterward, so you&apos;re free to reorder, remove, or add to it.
+            Paste a YouTube playlist or Facebook collection link to copy its videos into one of your own personal playlists. This is
+            a one-time import — the app never re-syncs with the original afterward, so you&apos;re free to reorder, remove, or add to it.
           </p>
         </div>
 
         <Card>
           <CardContent className="space-y-3 p-4">
-            <Label htmlFor="playlist-url">YouTube playlist URL</Label>
+            <Label htmlFor="playlist-url">Playlist or collection URL</Label>
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                id="playlist-url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://www.youtube.com/playlist?list=..."
-                onKeyDown={(e) => { if (e.key === "Enter") handleFetch(); }}
-              />
+              <div className="relative flex-1">
+                {detectedProvider ? (
+                  <activeProviderUi.icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                ) : (
+                  <Link2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                )}
+                <Input
+                  id="playlist-url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder={activeProviderUi.placeholder}
+                  className="pl-9"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleFetch(); }}
+                />
+              </div>
               <Button onClick={handleFetch} disabled={fetching || !url.trim()}>
                 {fetching ? "Fetching…" : "Fetch"}
               </Button>

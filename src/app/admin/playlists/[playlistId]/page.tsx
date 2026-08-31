@@ -21,6 +21,9 @@ import {
   addVideo, getPlaylist, listVideos, removeVideo, reorderVideos, updateVideo,
 } from "@/lib/firestore/playlists";
 import { extractYouTubeId, formatDuration, youtubeThumbnail } from "@/lib/utils";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { detectVideoProvider, generateCanonicalUrl } from "@/lib/video-platforms";
+import { fetchVideoMetadata } from "@/lib/video-metadata";
 import type { Playlist, Video } from "@/types";
 import { ArrowLeft, GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -37,6 +40,7 @@ function AdminPlaylistEditorContent() {
   const { playlistId } = useParams<{ playlistId: string }>();
   const searchParams = useSearchParams();
   const studentId = searchParams.get("student");
+  const { user } = useAuth();
 
   const [playlist, setPlaylist] = React.useState<Playlist | null>(null);
   const [videos, setVideos] = React.useState<Video[]>([]);
@@ -67,12 +71,21 @@ function AdminPlaylistEditorContent() {
 
   async function handleAddVideo() {
     if (!newUrl.trim() || !newTitle.trim()) return;
-    const ytId = extractYouTubeId(newUrl);
+    const candidate = newUrl.trim();
+    const ytId = extractYouTubeId(candidate);
+    // Platform + canonical URL now come from the same shared detector every
+    // other add-video flow uses (see video-platforms/providers.ts), so a
+    // pasted Facebook (or Vimeo) link is tagged correctly instead of
+    // silently defaulting to no platform at all, which is what happened
+    // here before Facebook support existed.
+    const platform = detectVideoProvider(candidate)?.platform || "generic";
+    const canonicalUrl = generateCanonicalUrl(candidate) || candidate;
     await addVideo(playlistId, {
       title: newTitle.trim(),
-      videoUrl: newUrl.trim(),
+      videoUrl: canonicalUrl,
       youtubeVideoId: ytId,
       thumbnailUrl: newThumb.trim() || (ytId ? youtubeThumbnail(ytId) : ""),
+      platform,
     } as any);
     setNewUrl(""); setNewTitle(""); setNewThumb(""); setAddOpen(false);
     toast.success("Video added");
@@ -103,10 +116,33 @@ function AdminPlaylistEditorContent() {
   }
 
   React.useEffect(() => {
-    if (newUrl) {
-      const ytId = extractYouTubeId(newUrl);
-      if (ytId && !newThumb) setNewThumb(youtubeThumbnail(ytId));
+    if (!newUrl.trim()) return;
+
+    const ytId = extractYouTubeId(newUrl);
+    if (ytId) {
+      if (!newThumb) setNewThumb(youtubeThumbnail(ytId));
+      return;
     }
+
+    // Facebook has no client-side thumbnail derivation the way YouTube's
+    // video-id-based thumbnail URL works — it needs the Graph API oEmbed
+    // call (see video-metadata.ts / facebookGraph.ts), so it's only
+    // attempted here, behind the same auth token every other Facebook
+    // metadata lookup in the app already requires.
+    const candidate = newUrl.trim();
+    if (detectVideoProvider(candidate)?.platform !== "facebook") return;
+
+    let isActive = true;
+    Promise.resolve(user?.getIdToken?.())
+      .catch(() => null)
+      .then((idToken) => fetchVideoMetadata(candidate, { idToken }))
+      .then((meta) => {
+        if (!isActive || !meta) return;
+        if (!newTitle) setNewTitle(meta.title);
+        if (!newThumb && meta.thumbnailUrl) setNewThumb(meta.thumbnailUrl);
+      })
+      .catch(() => {});
+    return () => { isActive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newUrl]);
 
@@ -167,14 +203,14 @@ function AdminPlaylistEditorContent() {
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label>Video URL</Label>
-              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
+              <Input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="YouTube or Facebook video URL" />
             </div>
             <div className="space-y-1.5">
               <Label>Title</Label>
-              <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Video title" />
+              <Input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Video title (auto-filled for Facebook where available)" />
             </div>
             <div className="space-y-1.5">
-              <Label>Thumbnail URL (auto-filled for YouTube)</Label>
+              <Label>Thumbnail URL (auto-filled for YouTube and, where available, Facebook)</Label>
               <Input value={newThumb} onChange={(e) => setNewThumb(e.target.value)} placeholder="https://..." />
             </div>
           </div>

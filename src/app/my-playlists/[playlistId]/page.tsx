@@ -246,7 +246,14 @@ function PersonalPlaylistEditorContent() {
     setUrlStatus("checking");
     setUrlError(null);
 
-    fetchVideoMetadata(candidate)
+    // Only Facebook's metadata lookup needs an auth token (it goes through
+    // /api/facebook-video, a Graph API call that must run server-side —
+    // see video-metadata.ts). Fetching it unconditionally here is harmless
+    // for YouTube/Vimeo since fetchVideoMetadata simply ignores it for
+    // those platforms.
+    Promise.resolve(user?.getIdToken?.())
+      .catch(() => null)
+      .then((idToken) => fetchVideoMetadata(candidate, { idToken }))
       .then((meta) => {
         if (!isActive) return;
         if (meta) {
@@ -417,12 +424,19 @@ function PersonalPlaylistEditorContent() {
 
     const title = newTitle.trim() || metadataPreview?.title || "Untitled video";
     const normalized = normalizeVideoUrl(candidate) ?? { canonicalUrl: candidate, originalWatchUrl: candidate, externalVideoId: extractExternalVideoId(candidate), embedUrl: null, platform: detectVideoProvider(candidate)?.platform || "generic" };
+    // Short Facebook share links (fb.watch, /share/v/) normalize client-side
+    // to the raw pasted URL, since resolving them needs a server round trip
+    // — but if the metadata fetch already resolved one (see
+    // video-metadata.ts's Facebook branch), prefer that clean, ID-bearing
+    // URL over the short link so what's actually stored is the canonical
+    // https://www.facebook.com/watch/?v=... form.
+    const resolvedVideoUrl = metadataPreview?.canonicalUrl || normalized.canonicalUrl || candidate;
 
     setSaveLoading(true);
     try {
       await addPersonalVideo(ownerId, playlistId, {
         title,
-        videoUrl: normalized.canonicalUrl || candidate,
+        videoUrl: resolvedVideoUrl,
         youtubeVideoId: normalized.externalVideoId,
         thumbnailUrl: newThumb.trim() || metadataPreview?.thumbnailUrl || "",
         durationSeconds: metadataPreview?.durationSeconds ?? undefined,

@@ -370,117 +370,148 @@ function GoalsContent() {
         </div>
       </div>
 
+      {/*
+        Modal structure fix:
+        - DialogContent is a fixed-height flex column (`flex flex-col`) capped at
+          90dvh (dvh, not vh, so mobile browser chrome doesn't clip it) and width
+          is `calc(100%-2rem)` so it never touches the screen edges on small phones.
+        - `p-0 gap-0` removes the built-in padding so header/body/footer can each
+          control their own spacing and borders — this is what makes it look like
+          one continuous sheet instead of a box with dead space at the bottom.
+        - Only the middle section (`overflow-y-auto`) scrolls. Header and footer
+          are pinned via `shrink-0`, which is what stops the "huge empty area":
+          previously the *whole dialog* sized itself to content-when-short and
+          only clipped when content overflowed, leaving leftover blank space.
+        - `overflow-x-hidden` on the body is a safety net; the real horizontal
+          scroll came from the video row's playlist-name span (see below).
+      */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editingGoal ? "Edit Goal" : "Add Goal"}</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>Title</Label>
-              <Input
-                value={form.title}
-                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                placeholder="e.g. Learn English"
-                autoFocus
-              />
-            </div>
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-lg flex-col gap-0 overflow-hidden p-0 sm:w-full">
+          <DialogHeader className="shrink-0 border-b border-border px-4 py-3.5 sm:px-6">
+            <DialogTitle>{editingGoal ? "Edit Goal" : "Add Goal"}</DialogTitle>
+          </DialogHeader>
 
-            <div className="space-y-1.5">
-              <Label>Notes (optional)</Label>
-              <Textarea
-                value={form.notes}
-                onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                placeholder="Why this matters, or what 'done' looks like"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
+          <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden px-4 py-4 sm:px-6">
               <div className="space-y-1.5">
-                <Label>Due date (optional)</Label>
+                <Label>Title</Label>
                 <Input
-                  type="date"
-                  value={form.targetDate}
-                  onChange={(e) => setForm((f) => ({ ...f, targetDate: e.target.value }))}
+                  value={form.title}
+                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder="e.g. Learn English"
+                  autoFocus
                 />
               </div>
+
               <div className="space-y-1.5">
-                <Label>Priority</Label>
-                <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v as PriorityFormValue }))}>
-                  <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Playlists ({form.linkedPlaylistIds.length} selected)</Label>
-              {playlists.length === 0 ? (
-                <p className="text-xs text-muted-foreground">You don&apos;t have any personal playlists yet.</p>
-              ) : (
-                <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-md border border-input p-1.5">
-                  {playlists.map((p) => (
-                    <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
-                      <Checkbox checked={form.linkedPlaylistIds.includes(p.id)} onCheckedChange={() => toggleFormPlaylist(p.id)} />
-                      <span className="min-w-0 flex-1 truncate">{p.title}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">{p.videoCount} videos</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Individual videos ({form.linkedVideoIds.length} selected)</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  value={videoSearch}
-                  onChange={(e) => setVideoSearch(e.target.value)}
-                  placeholder="Search your videos by title"
-                  className="h-8 pl-8 text-sm"
+                <Label>Notes (optional)</Label>
+                <Textarea
+                  value={form.notes}
+                  onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+                  placeholder="Why this matters, or what 'done' looks like"
                 />
               </div>
-              {form.linkedVideoIds.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {form.linkedVideoIds.map((id) => {
-                    const v = allVideos.find((video) => video.id === id);
-                    if (!v) return null;
-                    return (
-                      <Badge key={id} variant="secondary" className="gap-1 pr-1 font-normal">
-                        <span className="max-w-[160px] truncate">{v.title}</span>
-                        <button type="button" onClick={() => toggleFormVideo(id)} aria-label={`Remove ${v.title}`} className="rounded-full p-0.5 hover:bg-background/60">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    );
-                  })}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Due date (optional)</Label>
+                  <Input
+                    type="date"
+                    value={form.targetDate}
+                    onChange={(e) => setForm((f) => ({ ...f, targetDate: e.target.value }))}
+                  />
                 </div>
-              )}
-              <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-md border border-input p-1.5">
-                {filteredVideoOptions.length === 0 ? (
-                  <p className="px-1.5 py-2 text-xs text-muted-foreground">
-                    {videoSearch ? "No videos match that search." : "You don't have any personal videos yet."}
-                  </p>
+                <div className="space-y-1.5">
+                  <Label>Priority</Label>
+                  <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v as PriorityFormValue }))}>
+                    <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="low">Low</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Playlists ({form.linkedPlaylistIds.length} selected)</Label>
+                {playlists.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">You don&apos;t have any personal playlists yet.</p>
                 ) : (
-                  filteredVideoOptions.map((v) => (
-                    <label key={v.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
-                      <Checkbox checked={form.linkedVideoIds.includes(v.id)} onCheckedChange={() => toggleFormVideo(v.id)} />
-                      <span className="min-w-0 flex-1 truncate">{v.title}</span>
-                      <span className="shrink-0 truncate text-xs text-muted-foreground">{v.playlistTitle}</span>
-                    </label>
-                  ))
+                  <div className="max-h-36 space-y-0.5 overflow-y-auto overflow-x-hidden rounded-md border border-input p-1.5">
+                    {playlists.map((p) => (
+                      <label key={p.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                        <Checkbox className="shrink-0" checked={form.linkedPlaylistIds.includes(p.id)} onCheckedChange={() => toggleFormPlaylist(p.id)} />
+                        <span className="min-w-0 flex-1 truncate" title={p.title}>{p.title}</span>
+                        <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">{p.videoCount} videos</span>
+                      </label>
+                    ))}
+                  </div>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                A video counted through a linked playlist above won&apos;t be counted twice even if you also pick it here.
-              </p>
+
+              <div className="space-y-1.5">
+                <Label>Individual videos ({form.linkedVideoIds.length} selected)</Label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    value={videoSearch}
+                    onChange={(e) => setVideoSearch(e.target.value)}
+                    placeholder="Search your videos by title"
+                    className="h-8 pl-8 text-sm"
+                  />
+                </div>
+                {form.linkedVideoIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {form.linkedVideoIds.map((id) => {
+                      const v = allVideos.find((video) => video.id === id);
+                      if (!v) return null;
+                      return (
+                        <Badge key={id} variant="secondary" className="max-w-full gap-1 pr-1 font-normal">
+                          <span className="max-w-[160px] truncate" title={v.title}>{v.title}</span>
+                          <button type="button" onClick={() => toggleFormVideo(id)} aria-label={`Remove ${v.title}`} className="shrink-0 rounded-full p-0.5 hover:bg-background/60">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="max-h-36 space-y-0.5 overflow-y-auto overflow-x-hidden rounded-md border border-input p-1.5">
+                  {filteredVideoOptions.length === 0 ? (
+                    <p className="px-1.5 py-2 text-xs text-muted-foreground">
+                      {videoSearch ? "No videos match that search." : "You don't have any personal videos yet."}
+                    </p>
+                  ) : (
+                    filteredVideoOptions.map((v) => (
+                      <label key={v.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                        <Checkbox className="shrink-0" checked={form.linkedVideoIds.includes(v.id)} onCheckedChange={() => toggleFormVideo(v.id)} />
+                        {/*
+                          These two spans previously caused horizontal scroll: the
+                          playlist-name span had `shrink-0` + `truncate` with no
+                          max-width, so `truncate` had nothing to clip against and
+                          the row (and the whole dialog) stretched to fit the full
+                          text. Now both are properly truncated and clipped, with
+                          `title` giving a native hover tooltip for the full text
+                          instead of adding a scrollbar inside a tiny list row.
+                        */}
+                        <span className="min-w-0 flex-1 truncate" title={v.title}>{v.title}</span>
+                        <span className="max-w-[30%] shrink-0 truncate text-xs text-muted-foreground sm:max-w-[140px]" title={v.playlistTitle}>
+                          {v.playlistTitle}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  A video counted through a linked playlist above won&apos;t be counted twice even if you also pick it here.
+                </p>
+              </div>
             </div>
 
-            <DialogFooter>
+            <DialogFooter className="shrink-0 gap-2 border-t border-border px-4 py-3.5 sm:px-6">
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={saving || !form.title.trim()}>{saving ? "Saving…" : editingGoal ? "Save changes" : "Add Goal"}</Button>
             </DialogFooter>

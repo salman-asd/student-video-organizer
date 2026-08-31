@@ -150,29 +150,68 @@ export class YouTubeShortsProvider implements VideoUrlProvider {
   }
 }
 
+// Facebook video URLs come in two shapes:
+//  (a) "long-form" links that already carry a numeric video ID we can read
+//      client-side: /watch/?v=123, /videos/123, /video.php?v=123, /reel/123.
+//  (b) "short-form" share links whose path segment is an opaque token, not
+//      the numeric ID: fb.watch/xXXXXXXXXX, /share/v/xXXXXXXXXX/,
+//      /share/r/xXXXXXXXXX/. Resolving these to a real video ID requires
+//      following Facebook's HTTP redirect — a plain fetch, no Graph API
+//      needed — which can only safely happen server-side (see
+//      resolveFacebookRedirectUrl in facebookGraph.ts; browsers can't read
+//      the Location header of a cross-origin redirect). detect() still
+//      recognizes these as Facebook so the UI treats them as a pending
+//      Facebook video instead of misclassifying them as "generic", and
+//      normalize() reports them valid-but-unresolved so the paste-a-URL
+//      flow doesn't reject them outright.
+const FACEBOOK_SHORT_LINK_HOSTS = new Set(["fb.watch"]);
+
 export class FacebookVideoProvider implements VideoUrlProvider {
   platform: VideoPlatform = "facebook";
+
+  private isShortShareLink(parsed: URL): boolean {
+    const host = parsed.hostname.toLowerCase();
+    if (FACEBOOK_SHORT_LINK_HOSTS.has(host)) return true;
+    if (host !== "facebook.com" && host !== "www.facebook.com" && host !== "m.facebook.com") return false;
+    const pathname = parsed.pathname.toLowerCase();
+    return pathname.startsWith("/share/v/") || pathname.startsWith("/share/r/");
+  }
 
   detect(url: string): boolean {
     const parsed = parseVideoUrl(url);
     if (!parsed) return false;
     const host = parsed.hostname.toLowerCase();
+
+    if (FACEBOOK_SHORT_LINK_HOSTS.has(host)) return true;
     if (host !== "facebook.com" && host !== "www.facebook.com" && host !== "m.facebook.com") return false;
 
     const pathname = parsed.pathname.toLowerCase();
     const hasVideoQuery = parsed.searchParams.get("v");
-    return pathname.includes("/videos/") || pathname.includes("/watch/") || pathname.includes("/video.php") || Boolean(hasVideoQuery);
+    return (
+      pathname.includes("/videos/") ||
+      pathname.includes("/watch/") ||
+      pathname.includes("/video.php") ||
+      pathname.startsWith("/reel/") ||
+      pathname.startsWith("/share/v/") ||
+      pathname.startsWith("/share/r/") ||
+      Boolean(hasVideoQuery)
+    );
   }
 
   extractVideoId(url: string): string | null {
     const parsed = parseVideoUrl(url);
     if (!parsed) return null;
 
+    if (this.isShortShareLink(parsed)) return null;
+
     const videoQuery = parsed.searchParams.get("v");
     if (videoQuery && /^\d{5,}$/.test(videoQuery)) return videoQuery;
 
     const pathMatch = parsed.pathname.match(/\/videos\/(\d+)/i) || parsed.pathname.match(/\/watch\/?$/i) && parsed.searchParams.get("v");
     if (pathMatch) return pathMatch[1] ?? parsed.searchParams.get("v");
+
+    const reelMatch = parsed.pathname.match(/\/reel\/(\d+)/i);
+    if (reelMatch) return reelMatch[1];
 
     if (parsed.pathname.toLowerCase().includes("/video.php")) {
       const id = parsed.searchParams.get("v");
@@ -209,10 +248,23 @@ export class FacebookVideoProvider implements VideoUrlProvider {
   }
 
   normalize(url: string): NormalizedVideoUrl | null {
+    const parsed = parseVideoUrl(url);
     const videoId = this.extractVideoId(url);
-    if (!videoId) return null;
-    const canonicalUrl = this.canonicalUrl(url)!;
-    return buildNormalizedResult(url, this.platform, canonicalUrl, canonicalUrl, this.embedUrl(url), videoId);
+
+    if (videoId) {
+      const canonicalUrl = this.canonicalUrl(url)!;
+      return buildNormalizedResult(url, this.platform, canonicalUrl, canonicalUrl, this.embedUrl(url), videoId);
+    }
+
+    // Recognized-but-unresolved short link: still "valid" from the UI's
+    // perspective (it's a real Facebook video URL), just missing the fields
+    // that require the server-side redirect resolution step.
+    if (parsed && this.isShortShareLink(parsed)) {
+      const trimmed = url.trim();
+      return buildNormalizedResult(url, this.platform, trimmed, trimmed, null, null);
+    }
+
+    return null;
   }
 }
 
@@ -327,7 +379,13 @@ export const videoPlatformProviders: VideoUrlProvider[] = [
 
 function isKnownVideoHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
-  return host.includes("youtube.com") || host === "youtu.be" || host.includes("facebook.com") || host.includes("vimeo.com");
+  return (
+    host.includes("youtube.com") ||
+    host === "youtu.be" ||
+    host.includes("facebook.com") ||
+    host === "fb.watch" ||
+    host.includes("vimeo.com")
+  );
 }
 
 export function detectVideoProvider(url: string): VideoUrlProvider | null {

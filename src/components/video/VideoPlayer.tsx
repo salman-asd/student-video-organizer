@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import YouTube, { type YouTubeProps, type YouTubePlayer } from "react-youtube";
+import { generateEmbedUrl } from "@/lib/video-platforms";
 
 interface Props {
   youtubeVideoId?: string | null;
@@ -13,9 +14,21 @@ interface Props {
 }
 
 /**
- * Renders the YouTube IFrame player when a youtubeVideoId is available.
- * For non-YouTube external URLs, falls back to a simple "open externally"
- * card — this app never hosts or proxies video files.
+ * Renders the YouTube IFrame player when a youtubeVideoId is available —
+ * that path is unchanged and is the only one with progress tracking, since
+ * it's the only platform whose iframe exposes a JS API to read/seek
+ * playback position (react-youtube's onStateChange/getCurrentTime).
+ *
+ * For other platforms that provide a public iframe embed (Facebook's
+ * plugins/video.php, Vimeo's player.vimeo.com — see generateEmbedUrl),
+ * renders that embed directly so the video plays in-app. There's no
+ * postMessage progress API for these the way there is for YouTube, so
+ * watch position isn't tracked — the same trade-off YouTube's Shorts and
+ * every other non-YouTube platform already made before this.
+ *
+ * Only when a platform has no public embed mechanism at all (a bare
+ * `generic` URL) does this fall back to a simple "open externally" card —
+ * this app never hosts or proxies video files itself.
  */
 export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProgress, onPause, onEnded }: Props) {
   const playerRef = React.useRef<YouTubePlayer | null>(null);
@@ -129,6 +142,22 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
   }, []);
 
   if (!youtubeVideoId) {
+    const embedUrl = generateEmbedUrl(videoUrl);
+
+    if (embedUrl) {
+      return (
+        <div className="relative z-0 aspect-video w-full overflow-hidden rounded-lg bg-black">
+          <iframe
+            src={embedUrl}
+            className="h-full w-full"
+            allow="autoplay; encrypted-media; picture-in-picture; web-share"
+            allowFullScreen
+            title={videoUrl}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-secondary text-center">
         <p className="text-sm text-muted-foreground">This video is hosted externally.</p>
