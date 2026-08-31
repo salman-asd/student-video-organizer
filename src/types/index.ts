@@ -270,6 +270,10 @@ export interface PersonalPlaylist {
    *  number as a tiebreaker). Only meaningful when sortMode is
    *  "advanced-keywords"; see src/lib/keywordSort.ts. */
   sortKeywords?: string[];
+  /** Whether finishing a video in this playlist automatically advances to
+   *  the next one. Defaults to off (undefined/false) for existing
+   *  playlists so nothing changes behavior until a user opts in. */
+  autoPlay?: boolean;
   videoCount: number;
   totalDurationSeconds?: number;
   createdAt: Timestamp | null;
@@ -322,8 +326,24 @@ export interface Goal {
    *  checkbox, e.g. "Finish the ASP.NET Core playlist" tracking itself. The
    *  title is denormalized so the list can render it without an extra
    *  fetch per goal; it's cosmetic only; the id is what's authoritative. */
+  /** Deprecated in favor of linkedPlaylists (a goal can now reference
+   *  multiple playlists) — kept so goals created before this existed keep
+   *  working. New code should read linkedPlaylists first and treat this as
+   *  a fallback (see goalUtils.getGoalLinkedPlaylists). Never written by
+   *  new/edited goals. */
   linkedPlaylistId?: string | null;
   linkedPlaylistTitle?: string | null;
+  /** Personal playlists this goal tracks. Title is denormalized so the
+   *  list/card can render without an extra fetch per goal — the id is
+   *  authoritative for progress calculation. */
+  linkedPlaylists?: { id: string; title: string }[];
+  /** Individual videos this goal tracks directly, independent of any
+   *  linked playlist. playlistId/playlistTitle are carried along since a
+   *  personal video's watch page and progress live under its playlist. If
+   *  a video here also belongs to a linkedPlaylists entry, progress
+   *  calculation de-duplicates by id rather than double-counting it — see
+   *  goalUtils.getGoalVideoIds. */
+  linkedVideos?: { id: string; playlistId: string; playlistTitle: string; title: string }[];
   createdAt: Timestamp | null;
   updatedAt?: Timestamp | null;
 }

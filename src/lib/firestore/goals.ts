@@ -16,8 +16,8 @@ export interface GoalInput {
   /** ISO date string ("YYYY-MM-DD") or null/undefined to leave it unset. */
   targetDate?: string | null;
   priority?: PriorityLevel;
-  linkedPlaylistId?: string | null;
-  linkedPlaylistTitle?: string | null;
+  linkedPlaylists?: { id: string; title: string }[];
+  linkedVideos?: { id: string; playlistId: string; playlistTitle: string; title: string }[];
 }
 
 export async function addGoal(uid: string, input: GoalInput) {
@@ -26,8 +26,8 @@ export async function addGoal(uid: string, input: GoalInput) {
     notes: input.notes || "",
     targetDate: input.targetDate || null,
     priority: input.priority || null,
-    linkedPlaylistId: input.linkedPlaylistId || null,
-    linkedPlaylistTitle: input.linkedPlaylistTitle || null,
+    linkedPlaylists: input.linkedPlaylists || [],
+    linkedVideos: input.linkedVideos || [],
     completed: false,
     completedAt: null,
     createdAt: serverTimestamp(),

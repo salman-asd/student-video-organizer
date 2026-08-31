@@ -20,16 +20,21 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { addGoal, listGoals, removeGoal, toggleGoal, updateGoal, type GoalInput } from "@/lib/firestore/goals";
-import { listPersonalPlaylists, listPersonalVideos } from "@/lib/firestore/personalPlaylists";
-import { describeDueDate, isGoalOverdue } from "@/lib/goalUtils";
+import { listPersonalPlaylists, listAllPersonalVideos } from "@/lib/firestore/personalPlaylists";
+import {
+  describeDueDate, isGoalOverdue, getGoalLinkedPlaylists, getGoalLinkedVideos, calculateGoalProgress,
+} from "@/lib/goalUtils";
 import { todayKey } from "@/lib/utils";
-import type { Goal, PersonalPlaylist, PriorityLevel } from "@/types";
-import { Target, Trash2, Pencil, Plus, ListVideo, CalendarClock, CheckCircle2, Flag } from "lucide-react";
+import type { Goal, PersonalPlaylist, PersonalVideo, PriorityLevel } from "@/types";
+import {
+  Target, Trash2, Pencil, Plus, ListVideo, CalendarClock, CheckCircle2, Flag, Search, X, PlayCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 
 type FilterTab = "all" | "active" | "completed" | "overdue";
 type SortMode = "dueDate" | "priority" | "newest" | "oldest" | "alphabetical";
 type PriorityFormValue = "none" | "high" | "medium" | "low";
+type AllPersonalVideo = PersonalVideo & { playlistTitle: string };
 
 const FILTER_LABELS: Record<FilterTab, string> = {
   all: "All",
@@ -53,7 +58,8 @@ const emptyForm = {
   notes: "",
   targetDate: "",
   priority: "none" as PriorityFormValue,
-  linkedPlaylistId: "none",
+  linkedPlaylistIds: [] as string[],
+  linkedVideoIds: [] as string[],
 };
 
 export default function GoalsPage() {
@@ -68,7 +74,13 @@ function GoalsContent() {
   const { user } = useAuth();
   const [goals, setGoals] = React.useState<Goal[]>([]);
   const [playlists, setPlaylists] = React.useState<PersonalPlaylist[]>([]);
-  const [progressMap, setProgressMap] = React.useState<Record<string, { watched: number; total: number }>>({});
+  // Every personal video across every playlist, fetched once. Goal progress
+  // for *any* combination of linked playlists/videos is then just a filter
+  // over this single list (see calculateGoalProgress) — far cheaper than
+  // fetching per-goal, per-linked-playlist, and it's what makes de-duping
+  // a video that's both individually linked and inside a linked playlist
+  // basically free (it can only appear once in this array to begin with).
+  const [allVideos, setAllVideos] = React.useState<AllPersonalVideo[]>([]);
   const [loading, setLoading] = React.useState(true);
 
   const [filterTab, setFilterTab] = React.useState<FilterTab>("all");
@@ -77,27 +89,20 @@ function GoalsContent() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingGoal, setEditingGoal] = React.useState<Goal | null>(null);
   const [form, setForm] = React.useState(emptyForm);
+  const [videoSearch, setVideoSearch] = React.useState("");
   const [saving, setSaving] = React.useState(false);
 
   const refresh = React.useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const [gs, pls] = await Promise.all([listGoals(user.uid), listPersonalPlaylists(user.uid)]);
+    const [gs, pls, vids] = await Promise.all([
+      listGoals(user.uid),
+      listPersonalPlaylists(user.uid),
+      listAllPersonalVideos(user.uid),
+    ]);
     setGoals(gs);
     setPlaylists(pls);
-
-    // Only fetch videos for playlists that a goal actually links to, and
-    // only once per playlist — this page can otherwise get expensive if a
-    // student has many playlists but few goals linked to them.
-    const linkedIds = Array.from(new Set(gs.map((g) => g.linkedPlaylistId).filter((id): id is string => !!id)));
-    const entries = await Promise.all(
-      linkedIds.map(async (playlistId) => {
-        const videos = await listPersonalVideos(user.uid, playlistId).catch(() => []);
-        const watched = videos.filter((v) => v.status === "completed").length;
-        return [playlistId, { watched, total: videos.length }] as const;
-      })
-    );
-    setProgressMap(Object.fromEntries(entries));
+    setAllVideos(vids);
     setLoading(false);
   }, [user]);
 
@@ -138,6 +143,7 @@ function GoalsContent() {
   function openAddDialog() {
     setEditingGoal(null);
     setForm(emptyForm);
+    setVideoSearch("");
     setDialogOpen(true);
   }
 
@@ -148,9 +154,29 @@ function GoalsContent() {
       notes: goal.notes || "",
       targetDate: goal.targetDate || "",
       priority: (goal.priority || "none") as PriorityFormValue,
-      linkedPlaylistId: goal.linkedPlaylistId || "none",
+      linkedPlaylistIds: getGoalLinkedPlaylists(goal).map((p) => p.id),
+      linkedVideoIds: getGoalLinkedVideos(goal).map((v) => v.id),
     });
+    setVideoSearch("");
     setDialogOpen(true);
+  }
+
+  function toggleFormPlaylist(playlistId: string) {
+    setForm((f) => ({
+      ...f,
+      linkedPlaylistIds: f.linkedPlaylistIds.includes(playlistId)
+        ? f.linkedPlaylistIds.filter((id) => id !== playlistId)
+        : [...f.linkedPlaylistIds, playlistId],
+    }));
+  }
+
+  function toggleFormVideo(videoId: string) {
+    setForm((f) => ({
+      ...f,
+      linkedVideoIds: f.linkedVideoIds.includes(videoId)
+        ? f.linkedVideoIds.filter((id) => id !== videoId)
+        : [...f.linkedVideoIds, videoId],
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -158,17 +184,23 @@ function GoalsContent() {
     if (!user || !form.title.trim()) return;
     setSaving(true);
     try {
-      const linkedPlaylist = form.linkedPlaylistId !== "none"
-        ? playlists.find((p) => p.id === form.linkedPlaylistId)
-        : undefined;
+      const linkedPlaylists = form.linkedPlaylistIds
+        .map((id) => playlists.find((p) => p.id === id))
+        .filter((p): p is PersonalPlaylist => !!p)
+        .map((p) => ({ id: p.id, title: p.title }));
+
+      const linkedVideos = form.linkedVideoIds
+        .map((id) => allVideos.find((v) => v.id === id))
+        .filter((v): v is AllPersonalVideo => !!v)
+        .map((v) => ({ id: v.id, playlistId: v.playlistId, playlistTitle: v.playlistTitle, title: v.title }));
 
       const input: GoalInput = {
         title: form.title.trim(),
         notes: form.notes.trim(),
         targetDate: form.targetDate || null,
         priority: (form.priority === "none" ? null : form.priority) as PriorityLevel,
-        linkedPlaylistId: linkedPlaylist?.id || null,
-        linkedPlaylistTitle: linkedPlaylist?.title || null,
+        linkedPlaylists,
+        linkedVideos,
       };
 
       if (editingGoal) {
@@ -200,13 +232,21 @@ function GoalsContent() {
     refresh();
   }
 
+  const filteredVideoOptions = React.useMemo(() => {
+    const q = videoSearch.trim().toLowerCase();
+    const base = q ? allVideos.filter((v) => v.title.toLowerCase().includes(q)) : allVideos;
+    // Cap the rendered list — with hundreds/thousands of personal videos,
+    // rendering every match at once isn't necessary; typing narrows it down.
+    return base.slice(0, 60);
+  }, [allVideos, videoSearch]);
+
   return (
     <AppShell>
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold">Learning Goals</h1>
-            <p className="text-sm text-muted-foreground">Set intentions, track deadlines, and link goals to a playlist to watch progress add up automatically.</p>
+            <p className="text-sm text-muted-foreground">Set intentions, track deadlines, and link goals to playlists or individual videos to watch progress add up automatically.</p>
           </div>
           <Button onClick={openAddDialog}><Plus className="h-4 w-4" /> Add Goal</Button>
         </div>
@@ -255,8 +295,11 @@ function GoalsContent() {
           ) : (
             visibleGoals.map((g) => {
               const due = describeDueDate(g.targetDate, g.completed, new Date(`${today}T12:00:00`));
-              const progress = g.linkedPlaylistId ? progressMap[g.linkedPlaylistId] : undefined;
-              const progressPercent = progress && progress.total > 0 ? Math.round((progress.watched / progress.total) * 100) : 0;
+              const linkedPlaylists = getGoalLinkedPlaylists(g);
+              const linkedVideos = getGoalLinkedVideos(g);
+              const progress = calculateGoalProgress(g, allVideos);
+              const progressPercent = progress.total > 0 ? Math.round((progress.watched / progress.total) * 100) : 0;
+              const hasLinkedContent = linkedPlaylists.length > 0 || linkedVideos.length > 0;
 
               return (
                 <Card key={g.id} className={g.completed ? "opacity-70" : ""}>
@@ -268,7 +311,7 @@ function GoalsContent() {
                         onCheckedChange={(v) => handleToggle(g, !!v)}
                         aria-label={`Mark "${g.title}" ${g.completed ? "incomplete" : "complete"}`}
                       />
-                      <div className="min-w-0 flex-1 space-y-1">
+                      <div className="min-w-0 flex-1 space-y-1.5">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className={g.completed ? "text-sm text-muted-foreground line-through" : "text-sm font-medium"}>{g.title}</span>
                           {g.priority && (
@@ -284,15 +327,33 @@ function GoalsContent() {
                         </div>
                         {g.notes && <p className="text-xs text-muted-foreground">{g.notes}</p>}
 
-                        {g.linkedPlaylistId && (
-                          <div className="space-y-1 pt-1">
+                        {hasLinkedContent && (
+                          <div className="space-y-1.5 pt-1">
+                            {linkedPlaylists.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <ListVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                {linkedPlaylists.map((p) => (
+                                  <Link key={p.id} href={`/my-playlists/${p.id}`}>
+                                    <Badge variant="outline" className="font-normal hover:bg-secondary">{p.title}</Badge>
+                                  </Link>
+                                ))}
+                              </div>
+                            )}
+                            {linkedVideos.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <PlayCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                {linkedVideos.map((v) => (
+                                  <Link key={v.id} href={`/my-playlists/${v.playlistId}/${v.id}`}>
+                                    <Badge variant="outline" className="font-normal hover:bg-secondary">{v.title}</Badge>
+                                  </Link>
+                                ))}
+                              </div>
+                            )}
                             <div className="flex items-center justify-between text-xs text-muted-foreground">
-                              <Link href={`/my-playlists/${g.linkedPlaylistId}`} className="flex items-center gap-1 hover:text-foreground">
-                                <ListVideo className="h-3.5 w-3.5" /> {g.linkedPlaylistTitle || "Linked playlist"}
-                              </Link>
-                              {progress && <span>{progress.watched} of {progress.total} watched ({progressPercent}%)</span>}
+                              <span>Progress</span>
+                              <span>{progress.watched} of {progress.total} watched ({progressPercent}%)</span>
                             </div>
-                            {progress && <Progress value={progressPercent} className="h-1.5" />}
+                            <Progress value={progressPercent} className="h-1.5" />
                           </div>
                         )}
                       </div>
@@ -310,7 +371,7 @@ function GoalsContent() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>{editingGoal ? "Edit Goal" : "Add Goal"}</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-3">
             <div className="space-y-1.5">
@@ -318,7 +379,7 @@ function GoalsContent() {
               <Input
                 value={form.title}
                 onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                placeholder="e.g. Finish the JavaScript Closures playlist"
+                placeholder="e.g. Learn English"
                 autoFocus
               />
             </div>
@@ -356,17 +417,67 @@ function GoalsContent() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Link to a playlist (optional)</Label>
-              <Select value={form.linkedPlaylistId} onValueChange={(v) => setForm((f) => ({ ...f, linkedPlaylistId: v }))}>
-                <SelectTrigger className="w-full"><SelectValue placeholder="No linked playlist" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No linked playlist</SelectItem>
+              <Label>Playlists ({form.linkedPlaylistIds.length} selected)</Label>
+              {playlists.length === 0 ? (
+                <p className="text-xs text-muted-foreground">You don&apos;t have any personal playlists yet.</p>
+              ) : (
+                <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-md border border-input p-1.5">
                   {playlists.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>
+                    <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                      <Checkbox checked={form.linkedPlaylistIds.includes(p.id)} onCheckedChange={() => toggleFormPlaylist(p.id)} />
+                      <span className="min-w-0 flex-1 truncate">{p.title}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">{p.videoCount} videos</span>
+                    </label>
                   ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Linking shows real watched/total progress on this goal, pulled from that playlist.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Individual videos ({form.linkedVideoIds.length} selected)</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  value={videoSearch}
+                  onChange={(e) => setVideoSearch(e.target.value)}
+                  placeholder="Search your videos by title"
+                  className="h-8 pl-8 text-sm"
+                />
+              </div>
+              {form.linkedVideoIds.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {form.linkedVideoIds.map((id) => {
+                    const v = allVideos.find((video) => video.id === id);
+                    if (!v) return null;
+                    return (
+                      <Badge key={id} variant="secondary" className="gap-1 pr-1 font-normal">
+                        <span className="max-w-[160px] truncate">{v.title}</span>
+                        <button type="button" onClick={() => toggleFormVideo(id)} aria-label={`Remove ${v.title}`} className="rounded-full p-0.5 hover:bg-background/60">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="max-h-36 space-y-0.5 overflow-y-auto rounded-md border border-input p-1.5">
+                {filteredVideoOptions.length === 0 ? (
+                  <p className="px-1.5 py-2 text-xs text-muted-foreground">
+                    {videoSearch ? "No videos match that search." : "You don't have any personal videos yet."}
+                  </p>
+                ) : (
+                  filteredVideoOptions.map((v) => (
+                    <label key={v.id} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm hover:bg-secondary">
+                      <Checkbox checked={form.linkedVideoIds.includes(v.id)} onCheckedChange={() => toggleFormVideo(v.id)} />
+                      <span className="min-w-0 flex-1 truncate">{v.title}</span>
+                      <span className="shrink-0 truncate text-xs text-muted-foreground">{v.playlistTitle}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                A video counted through a linked playlist above won&apos;t be counted twice even if you also pick it here.
+              </p>
             </div>
 
             <DialogFooter>

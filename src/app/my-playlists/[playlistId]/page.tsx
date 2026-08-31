@@ -8,7 +8,6 @@ import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +17,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { ShareDialog } from "@/components/share/ShareDialog";
 import { SortableList } from "@/components/dnd/SortableList";
 import {
@@ -25,8 +25,10 @@ import {
   bulkTogglePersonalVideoFavorite, bulkTogglePersonalVideoWatchLater, bulkSetPersonalVideoDurations, deletePersonalPlaylist,
   findDuplicatePersonalVideoUrl, getPersonalPlaylist, listPersonalVideos, movePersonalVideo,
   removePersonalVideo, reorderPersonalVideos, renamePersonalPlaylist, setPersonalPlaylistSortMode,
-  setPersonalPlaylistSortKeywords, syncPersonalPlaylistTotalDuration, updatePersonalVideoMeta,
+  setPersonalPlaylistAutoPlay, setPersonalPlaylistSortKeywords, setPersonalVideoPriority, setPersonalVideoWatched,
+  syncPersonalPlaylistTotalDuration, togglePersonalVideoFavorite, togglePersonalVideoWatchLater, updatePersonalVideoMeta,
 } from "@/lib/firestore/personalPlaylists";
+import { PlaylistVideoRow } from "@/components/video/PlaylistVideoRow";
 import { db } from "@/lib/firebase";
 import { createOrUpdatePlaylistShare } from "@/lib/firestore/shares";
 import { getShareUrl } from "@/lib/sharing";
@@ -40,8 +42,8 @@ import {
 import { formatDuration, formatWatchTime } from "@/lib/utils";
 import { compareLessonPartPage } from "@/lib/lessonPartPageSort";
 import { compareByKeywords, parseKeywordInput } from "@/lib/keywordSort";
-import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibility, PersonalVideo, ShareVisibility } from "@/types";
-import { ArrowLeft, CheckCircle2, ChevronUp, ChevronDown, Clock, Download, GripVertical, Lock, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibility, PersonalVideo, PriorityLevel, ShareVisibility } from "@/types";
+import { ArrowLeft, CheckCircle2, Clock, Download, Lock, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const PERSONAL_PLAYLIST_VISIBILITY_LABELS: Record<PersonalPlaylistVisibility, string> = {
@@ -541,6 +543,41 @@ function PersonalPlaylistEditorContent() {
     }
   }
 
+  // Per-row quick actions — previously these states could only be set in
+  // bulk (via multi-select) or from inside a video's own detail page; the
+  // redesigned row exposes them directly so a single toggle doesn't need
+  // either of those detours.
+  async function handleRowToggleFavorite(v: PersonalVideo) {
+    const next = !v.isFavorite;
+    setVideos((current) => current.map((video) => (video.id === v.id ? { ...video, isFavorite: next } : video)));
+    await togglePersonalVideoFavorite(ownerId, playlistId, v.id, next);
+  }
+
+  async function handleRowToggleWatchLater(v: PersonalVideo) {
+    const next = !v.isWatchLater;
+    setVideos((current) => current.map((video) => (video.id === v.id ? { ...video, isWatchLater: next } : video)));
+    await togglePersonalVideoWatchLater(ownerId, playlistId, v.id, next);
+  }
+
+  async function handleRowSetPriority(v: PersonalVideo, priority: PriorityLevel) {
+    setVideos((current) => current.map((video) => (video.id === v.id ? { ...video, priority } : video)));
+    await setPersonalVideoPriority(ownerId, playlistId, v.id, priority);
+  }
+
+  async function handleRowToggleWatched(v: PersonalVideo) {
+    const next = v.status !== "completed";
+    setVideos((current) => current.map((video) => (
+      video.id === v.id ? { ...video, status: next ? "completed" : "not_started", watchedPercentage: next ? 100 : 0 } : video
+    )));
+    await setPersonalVideoWatched(ownerId, playlistId, v.id, next);
+  }
+
+  async function handleToggleAutoPlay(checked: boolean) {
+    setPlaylist((p) => (p ? { ...p, autoPlay: checked } : p));
+    await setPersonalPlaylistAutoPlay(ownerId, playlistId, checked);
+    toast.success(checked ? "Autoplay turned on for this playlist" : "Autoplay turned off");
+  }
+
   async function handleSavePlaylistDetails() {
     if (!playlist) return;
     await renamePersonalPlaylist(
@@ -735,7 +772,13 @@ function PersonalPlaylistEditorContent() {
         )}
 
         {!loading && (
-          <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+          // Sticky within <main>'s own scroll region (see AppShell): search,
+          // filter, sort, and autoplay stay reachable no matter how far
+          // down a long video list you've scrolled, without needing a
+          // second nested scrollbar. The hero card above (thumbnail,
+          // description, stats) intentionally scrolls away normally —
+          // those are one-glance details, not controls you need mid-scroll.
+          <div className="sticky top-0 z-10 -mx-4 space-y-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:-mx-6 md:px-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div className="relative w-full max-w-md">
                 <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -768,6 +811,11 @@ function PersonalPlaylistEditorContent() {
                     ))}
                   </SelectContent>
                 </Select>
+
+                <div className="flex items-center gap-2 border-l border-border pl-2.5">
+                  <label htmlFor="autoplay-toggle" className="text-xs text-muted-foreground">Autoplay</label>
+                  <Switch id="autoplay-toggle" checked={!!playlist?.autoPlay} onCheckedChange={handleToggleAutoPlay} aria-label="Auto-play next video" />
+                </div>
               </div>
             </div>
 
@@ -830,34 +878,27 @@ function PersonalPlaylistEditorContent() {
               setSelectedIds([]);
               handleReorder(newOrder);
             }}
-            className="space-y-2"
-            renderItem={(v, dragHandleProps) => (
-              <Card className={`flex items-center gap-3 p-2.5 ${selectedIds.includes(v.id) ? "border-primary/70 bg-primary/5" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={selectedIds.includes(v.id)}
-                  onChange={() => toggleSelect(v.id)}
-                  className="h-4 w-4 rounded border-border text-primary"
-                  aria-label={`Select ${v.title}`}
-                />
-                <span {...(sortMode === "custom" ? dragHandleProps : {})} className={sortMode === "custom" ? "cursor-grab p-1 text-muted-foreground" : "pointer-events-none p-1 text-muted-foreground/50"}><GripVertical className="h-4 w-4" /></span>
-                <div className="flex flex-col gap-1">
-                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleMoveVideo(v.id, "up")} disabled={isSorting || sortMode !== "custom"}><ChevronUp className="h-3.5 w-3.5" /></Button>
-                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleMoveVideo(v.id, "down")} disabled={isSorting || sortMode !== "custom"}><ChevronDown className="h-3.5 w-3.5" /></Button>
-                </div>
-                <Link href={`/my-playlists/${playlistId}/${v.id}${isViewingOther ? `?owner=${ownerId}` : ""}`} className="flex min-w-0 flex-1 items-center gap-3">
-                  <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded-md bg-secondary">
-                    {v.thumbnailUrl && <Image src={v.thumbnailUrl} alt={v.title} fill className="object-cover" sizes="80px" />}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{v.title}</p>
-                    <p className="text-xs text-muted-foreground">{formatDuration(v.durationSeconds)} · {v.watchedPercentage}% watched</p>
-                  </div>
-                </Link>
-                {v.status === "completed" && <Badge variant="success">Done</Badge>}
-                <Button variant="ghost" size="icon" onClick={() => setEditing(v)}><Pencil className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => handleRemove(v)}><Trash2 className="h-4 w-4" /></Button>
-              </Card>
+            className="space-y-1.5"
+            renderItem={(v, dragHandleProps, index) => (
+              <PlaylistVideoRow
+                video={v}
+                watchHref={`/my-playlists/${playlistId}/${v.id}${isViewingOther ? `?owner=${ownerId}` : ""}`}
+                selected={selectedIds.includes(v.id)}
+                onToggleSelect={() => toggleSelect(v.id)}
+                dragHandleProps={dragHandleProps}
+                canDrag={sortMode === "custom"}
+                isSorting={isSorting}
+                canMoveUp={sortMode === "custom" && index > 0}
+                canMoveDown={sortMode === "custom" && index < filteredVideos.length - 1}
+                onMoveUp={() => handleMoveVideo(v.id, "up")}
+                onMoveDown={() => handleMoveVideo(v.id, "down")}
+                onEdit={() => setEditing(v)}
+                onRemove={() => handleRemove(v)}
+                onToggleFavorite={() => handleRowToggleFavorite(v)}
+                onToggleWatchLater={() => handleRowToggleWatchLater(v)}
+                onSetPriority={(p) => handleRowSetPriority(v, p)}
+                onToggleWatched={() => handleRowToggleWatched(v)}
+              />
             )}
           />
         )}

@@ -22,6 +22,7 @@ import {
 } from "@/lib/firestore/userVideoState";
 import { getNote, getSummary } from "@/lib/firestore/notes";
 import { listGoals, toggleGoal } from "@/lib/firestore/goals";
+import { getGoalLinkedPlaylists, getGoalLinkedVideos } from "@/lib/goalUtils";
 import { formatWatchTime } from "@/lib/utils";
 import type { Goal, PersonalPlaylist, Playlist, UserProfile, VideoWithState } from "@/types";
 import { ArrowLeft, Flame, ShieldOff, ShieldCheck as ShieldCheckIcon, StickyNote, Lock } from "lucide-react";
@@ -268,7 +269,8 @@ function AdminUserDetailContent() {
                       </Badge>
                     )}
                     {g.targetDate && <Badge variant="outline">Due {g.targetDate}</Badge>}
-                    {g.linkedPlaylistTitle && <Badge variant="outline">{g.linkedPlaylistTitle}</Badge>}
+                    {getGoalLinkedPlaylists(g).map((p) => <Badge key={p.id} variant="outline">{p.title}</Badge>)}
+                    {getGoalLinkedVideos(g).map((v) => <Badge key={v.id} variant="outline">{v.title}</Badge>)}
                   </div>
                   <Badge variant={g.completed ? "success" : "secondary"}>{g.completed ? "Done" : "Active"}</Badge>
                 </CardContent>

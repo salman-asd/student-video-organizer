@@ -101,6 +101,16 @@ export async function syncPersonalPlaylistTotalDuration(ownerId: string, playlis
   });
 }
 
+/** Toggles whether finishing a video in this playlist auto-advances to the
+ *  next one. Saves immediately (it's a settings switch, not a form field
+ *  behind a Save button) — see the Autoplay control in the playlist header. */
+export async function setPersonalPlaylistAutoPlay(ownerId: string, playlistId: string, autoPlay: boolean) {
+  await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId), {
+    autoPlay,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function deletePersonalPlaylist(ownerId: string, playlistId: string) {
   const vids = await getDocs(videosCol(ownerId, playlistId));
   const batch = writeBatch(db);

@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Lock } from "lucide-react";
 import {
-  getPersonalVideo, listPersonalVideos, savePersonalVideoProgress, setPersonalVideoPriority,
+  getPersonalPlaylist, getPersonalVideo, listPersonalVideos, savePersonalVideoProgress, setPersonalVideoPriority,
   setPersonalVideoWatched, togglePersonalVideoFavorite, togglePersonalVideoWatchLater,
 } from "@/lib/firestore/personalPlaylists";
 import { deleteNote, getNote, getSummary, saveNote, saveSummary } from "@/lib/firestore/notes";
@@ -49,6 +49,7 @@ function PersonalVideoContent() {
 
   const [video, setVideo] = React.useState<PersonalVideo | null>(null);
   const [playlistVideos, setPlaylistVideos] = React.useState<PersonalVideo[]>([]);
+  const [autoPlay, setAutoPlay] = React.useState(false);
   const [note, setNote] = React.useState("");
   const [summary, setSummary] = React.useState("");
   const [loading, setLoading] = React.useState(true);
@@ -63,16 +64,18 @@ function PersonalVideoContent() {
   const load = React.useCallback(async () => {
     if (!ownerId) return;
     setLoading(true);
-    const [v, vids, n, sm] = await Promise.all([
+    const [v, vids, n, sm, pl] = await Promise.all([
       getPersonalVideo(ownerId, playlistId, videoId),
       listPersonalVideos(ownerId, playlistId),
       getNote(ownerId, noteKey(videoId)),
       getSummary(ownerId, noteKey(videoId)),
+      getPersonalPlaylist(ownerId, playlistId),
     ]);
     setVideo(v);
     setPlaylistVideos(vids);
     setNote(n?.content || "");
     setSummary(sm?.content || "");
+    setAutoPlay(!!pl?.autoPlay);
     setLoading(false);
   }, [ownerId, playlistId, videoId]);
 
@@ -134,7 +137,13 @@ function PersonalVideoContent() {
     lastProgressSaveRef.current = Date.now();
     previousProgressRef.current = dur;
     setVideo((v) => (v ? { ...v, status: "completed", currentPositionSeconds: dur, watchedPercentage: snapshot.percent } : v));
-    toast.success("Nice work — video completed!");
+
+    if (autoPlay && next) {
+      toast.success(`Finished! Autoplaying "${next.title}"…`);
+      router.push(`/my-playlists/${playlistId}/${next.id}${suffix}`);
+    } else {
+      toast.success("Nice work — video completed!");
+    }
   }
 
   async function handleToggleFavorite() {

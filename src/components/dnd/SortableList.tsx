@@ -13,7 +13,7 @@ interface SortableListProps<T> {
   items: T[];
   getId: (item: T) => string;
   onReorder: (newItems: T[]) => void;
-  renderItem: (item: T, dragHandleProps: any) => React.ReactNode;
+  renderItem: (item: T, dragHandleProps: any, index: number) => React.ReactNode;
   className?: string;
 }
 
@@ -37,9 +37,9 @@ export function SortableList<T>({ items, getId, onReorder, renderItem, className
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <SortableContext items={items.map(getId)} strategy={verticalListSortingStrategy}>
         <div className={className}>
-          {items.map((item) => (
+          {items.map((item, index) => (
             <SortableRow key={getId(item)} id={getId(item)}>
-              {(dragHandleProps) => renderItem(item, dragHandleProps)}
+              {(dragHandleProps) => renderItem(item, dragHandleProps, index)}
             </SortableRow>
           ))}
         </div>
