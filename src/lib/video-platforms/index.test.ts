@@ -70,6 +70,38 @@ describe("video platform detection and URL normalization", () => {
     assert.equal(videosResult?.canonicalUrl, "https://www.facebook.com/watch/?v=1122334455");
   });
 
+  it("keeps facebook Reel URLs in /reel/ shape end-to-end instead of collapsing to /watch/?v=", () => {
+    // Regression test: a Reel's canonicalUrl (and thus the stored videoUrl,
+    // and thus the plugins/video.php embed href derived from it later at
+    // render time) must stay a /reel/{id}/ URL, not get rewritten to
+    // /watch/?v={id} — that rewrite is what causes newly-saved Reels to
+    // render a black player. See providers.ts FacebookVideoProvider.
+    const reelResult = normalizeVideoUrl("https://www.facebook.com/reel/9876543210");
+    assert.ok(reelResult);
+    assert.equal(reelResult?.canonicalUrl, "https://www.facebook.com/reel/9876543210/");
+    assert.match(reelResult?.embedUrl ?? "", /facebook\.com\/plugins\/video\.php/i);
+    assert.match(
+      decodeURIComponent(reelResult?.embedUrl ?? ""),
+      /href=https:\/\/www\.facebook\.com\/reel\/9876543210\/(?:&|$)/i
+    );
+
+    // Non-Reel shapes must still normalize to /watch/?v= as before, and
+    // their embed href must match (not silently point at a /reel/ URL).
+    const watchResult = normalizeVideoUrl("https://www.facebook.com/watch/?v=1234567890");
+    assert.equal(watchResult?.canonicalUrl, "https://www.facebook.com/watch/?v=1234567890");
+    assert.match(
+      decodeURIComponent(watchResult?.embedUrl ?? ""),
+      /href=https:\/\/www\.facebook\.com\/watch\/\?v=1234567890(?:&|$)/i
+    );
+
+    // canonicalUrl() must be idempotent when re-applied to its own output
+    // (e.g. the DB's stored videoUrl fed back through embedUrl() at render
+    // time) — this is exactly the path that previously lost the Reel/watch
+    // distinction.
+    assert.equal(generateCanonicalUrl(reelResult!.canonicalUrl), reelResult!.canonicalUrl);
+    assert.equal(generateCanonicalUrl(watchResult!.canonicalUrl), watchResult!.canonicalUrl);
+  });
+
   it("recognizes facebook short share links as pending, not rejected", () => {
     // fb.watch and /share/v|r/ links carry an opaque token, not the numeric
     // video id, so they can't be resolved to a canonical URL client-side —
