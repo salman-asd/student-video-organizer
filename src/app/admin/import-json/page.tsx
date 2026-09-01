@@ -115,8 +115,10 @@ function AdminImportJsonContent() {
       // YouTube/Vimeo rows ignore it.
       const metadata = await fetchVideoMetadata(candidateUrl, { idToken });
       const title = (item.title ?? item.Title ?? metadata?.title ?? "Untitled video").toString().trim() || "Untitled video";
-      const ytId = extractYouTubeId(candidateUrl) ?? normalized.externalVideoId ?? null;
       const platform = detectVideoPlatform(candidateUrl) ?? normalized.platform;
+      const ytId = platform === "youtube" || platform === "youtube-shorts"
+        ? (extractYouTubeId(candidateUrl) ?? normalized.externalVideoId ?? null)
+        : null;
       const thumb = (item.thumbnailUrl ?? item["Thumbnail URL"] ?? item.thumbnail ?? metadata?.thumbnailUrl ?? (ytId ? youtubeThumbnail(ytId) : "")).toString().trim();
 
       valid.push({

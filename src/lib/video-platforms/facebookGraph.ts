@@ -231,7 +231,7 @@ function decodeHtmlEntities(str: string): string {
  * oEmbed's own thumbnail_url, on the off chance Facebook returns one — see
  * fetchFacebookVideoOEmbed).
  */
-function parseFacebookFallbackHtml(html: string): { caption: string | null; authorName: string | null } {
+function parseFacebookFallbackHtml(html: string): { caption: string | null; pageName: string | null; authorName: string | null } {
   const authorMatch = html.match(/Posted by\s*<a[^>]*>([^<]*)<\/a>/i);
   const authorName = authorMatch?.[1] ? decodeHtmlEntities(authorMatch[1]).trim() || null : null;
 
@@ -253,30 +253,65 @@ function parseFacebookFallbackHtml(html: string): { caption: string | null; auth
     }
   }
 
-  const caption = captionSource ? cleanFacebookTitle(decodeHtmlEntities(captionSource)) : null;
+  if (!captionSource) return { caption: null, pageName: null, authorName };
 
-  return { caption, authorName: authorName || null };
+  const { title, pageName } = parseFacebookTitleText(decodeHtmlEntities(captionSource));
+  return { caption: title, pageName, authorName };
 }
 
 function stripTags(str: string): string {
   return str.replace(/<[^>]*>/g, "");
 }
 
-// Facebook's fallback caption/title text is sometimes prefixed with
-// engagement stats before a pipe — e.g. "10M views · 682K reactions |
-// Actual Title" — rather than being the clean title on its own. Strip a
-// leading run of "<number><K/M/B?> <views/reactions/likes/comments/shares>"
-// segments (joined by · or |) up to and including the final "|", leaving
-// just the real title. If the text doesn't match that shape at all (no
-// trailing "|" stats prefix), it's returned unchanged — this only ever
-// removes a recognized stats prefix, never touches an ordinary title.
-const FACEBOOK_STATS_PREFIX = /^\s*(?:[\d.,]+\s*[KMB]?\+?\s*(?:views?|reactions?|likes?|comments?|shares?)\s*[·•]?\s*)+\|\s*/i;
+// A single stat word with its number — "354K views", "4.3K reactions",
+// "12 comments". The leading segment of a title/caption is often TWO of
+// these joined by "·" in one "|"-delimited chunk (e.g.
+// "354K views · 4.3K reactions"), not one stat per segment, so
+// FACEBOOK_STATS_SEGMENT below matches one-or-more of these joined by ·/•
+// as a whole, not just a single stat.
+const FACEBOOK_STAT_SUBPART = /[\d.,]+\s*[KMB]?\+?\s*(?:views?|reactions?|likes?|comments?|shares?)/i;
+const FACEBOOK_STAT_SEGMENT = new RegExp(`^${FACEBOOK_STAT_SUBPART.source}(?:\\s*[·•]\\s*${FACEBOOK_STAT_SUBPART.source})*$`, "i");
 
-function cleanFacebookTitle(text: string): string | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  const stripped = trimmed.replace(FACEBOOK_STATS_PREFIX, "").trim();
-  return stripped || trimmed;
+/**
+ * Facebook's title/caption text for a video or Reel post commonly arrives
+ * as up to three "|"-separated segments, e.g.:
+ *
+ *   "354K views · 4.3K reactions | Actual Video Title, in any language |
+ *   Posting Page Or Profile Name"
+ *
+ * — engagement stats, the real caption/title (which may itself contain a
+ * legitimate "|" or non-English/mixed-script text — see decodeHtmlEntities
+ * for why that text needs to already be entity-decoded before this runs),
+ * and the posting Page/profile's display name. Only the middle portion is
+ * an actual title; the first is noise and the last belongs in authorName,
+ * not the title — see fetchFacebookVideoOEmbed for how the extracted
+ * pageName is used as a last-resort author fallback.
+ *
+ * Splits on every "|", drops a leading segment that's purely engagement
+ * stats (if there is one), then — when more than one segment remains —
+ * treats the last as the Page name and rejoins everything else as the
+ * title (so a genuine "|" inside the real title is preserved instead of
+ * being cut at the first pipe). A title with no "|" at all, or one where
+ * nothing looks like a stats/page wrapper, is returned unchanged.
+ */
+function parseFacebookTitleText(rawText: string): { title: string | null; pageName: string | null } {
+  const trimmed = rawText.trim();
+  if (!trimmed) return { title: null, pageName: null };
+
+  const segments = trimmed.split("|").map((s) => s.trim()).filter(Boolean);
+  if (segments.length <= 1) return { title: segments[0] ?? trimmed, pageName: null };
+
+  if (FACEBOOK_STAT_SEGMENT.test(segments[0])) {
+    segments.shift();
+  }
+
+  if (segments.length <= 1) {
+    return { title: segments[0] ?? trimmed, pageName: null };
+  }
+
+  const pageName = segments[segments.length - 1];
+  const title = segments.slice(0, -1).join(" | ").trim();
+  return { title: title || pageName, pageName: pageName || null };
 }
 
 /**
@@ -293,12 +328,20 @@ function cleanFacebookTitle(text: string): string | null {
  * Title/author priority: og:title/og:image (richest source, but
  * unofficial scraping — see fetchFacebookOpenGraphTags) → the caption/
  * author text embedded in oEmbed's own fallback `html` (official,
- * already-fetched, just underused, and run through cleanFacebookTitle
- * since this raw fallback text is exactly where Facebook's
- * "10M views · 682K reactions | <title>" engagement-stats prefix shows
- * up) → oEmbed's JSON title field (rarely populated for Facebook
- * video/Reel posts, kept as a last resort, also cleaned defensively) →
- * "Untitled video".
+ * already-fetched, just underused) → oEmbed's JSON title field (rarely
+ * populated for Facebook video/Reel posts, kept as a last resort). Every
+ * one of those raw text sources gets run through parseFacebookTitleText,
+ * since Facebook's "354K views · 4.3K reactions | Actual Title | Page
+ * Name" three-segment shape (see its doc comment) can show up in any of
+ * them, not just one. authorName prefers oEmbed's own `author_name` field
+ * and the fallback html's "Posted by" text (both explicit, structured
+ * author fields) over a title's trailing pageName segment (an inferred
+ * guess); pageName is only used when nothing more explicit was found.
+ *
+ * The returned `title` is then `"<cleaned title> | <authorName>"` — the
+ * requested display format — when an author was resolved, or just the
+ * cleaned title when it wasn't; never a bare "Untitled video" when an
+ * author is known, and never a trailing "| " with nothing after it.
  *
  * Thumbnail priority: oEmbed's own `thumbnail_url` field, in case Meta's
  * removal of that field (see module doc, case 3) doesn't apply to every
@@ -345,10 +388,29 @@ export async function fetchFacebookVideoOEmbed(oEmbedVideoUrl: string, ogPageUrl
 
     if (!oEmbedResult && !ogTags) return null;
 
+    const ogParsed = ogTags?.title ? parseFacebookTitleText(ogTags.title) : null;
     const fallback = oEmbedResult?.html ? parseFacebookFallbackHtml(oEmbedResult.html) : null;
+    const rawOEmbedParsed = typeof oEmbedResult?.title === "string" ? parseFacebookTitleText(oEmbedResult.title) : null;
 
-    const rawOEmbedTitle = typeof oEmbedResult?.title === "string" ? cleanFacebookTitle(oEmbedResult.title) : null;
-    const title = (ogTags?.title ? cleanFacebookTitle(ogTags.title) : null) || fallback?.caption || rawOEmbedTitle || "Untitled video";
+    const cleanTitle = ogParsed?.title || fallback?.caption || rawOEmbedParsed?.title || null;
+    const authorName =
+      oEmbedResult?.author_name ||
+      fallback?.authorName ||
+      ogParsed?.pageName ||
+      fallback?.pageName ||
+      rawOEmbedParsed?.pageName ||
+      null;
+
+    // Requested display format: "<title> | <authorName>" — the cleaned
+    // title (stats and any embedded page-name segment already stripped
+    // by parseFacebookTitleText above) with the resolved author/Page name
+    // appended back on with " | ", rather than the raw un-stripped
+    // Facebook string, and rather than dropping the author out of the
+    // title entirely. Only appended when an author was actually found;
+    // never produces a title ending in a bare "| " with nothing after it.
+    const title = cleanTitle
+      ? (authorName ? `${cleanTitle} | ${authorName}` : cleanTitle)
+      : (authorName ? `Untitled video | ${authorName}` : "Untitled video");
 
     const thumbnailUrl =
       sanitizeFacebookThumbnailUrl(oEmbedResult?.thumbnail_url) || sanitizeFacebookThumbnailUrl(ogTags?.thumbnailUrl);
@@ -356,11 +418,11 @@ export async function fetchFacebookVideoOEmbed(oEmbedVideoUrl: string, ogPageUrl
       console.warn(`[facebook-video] no usable thumbnail_url/og:image for "${oEmbedVideoUrl}" (or the only candidate was a Facebook page URL, which was discarded)`);
     }
 
-    console.log(`[facebook-video] extracted metadata for "${oEmbedVideoUrl}": title="${title}" thumbnailUrl="${thumbnailUrl ?? "(none)"}"`);
+    console.log(`[facebook-video] extracted metadata for "${oEmbedVideoUrl}": title="${title}" authorName="${authorName ?? "(none)"}" thumbnailUrl="${thumbnailUrl ?? "(none)"}"`);
 
     return {
       title,
-      authorName: oEmbedResult?.author_name || fallback?.authorName || null,
+      authorName,
       thumbnailUrl,
       html: oEmbedResult?.html || null,
     };

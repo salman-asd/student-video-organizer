@@ -25,7 +25,39 @@ describe("fetchFacebookVideoOEmbed", () => {
     return new Response(html, { status: 200 });
   }
 
-  it("strips a leading engagement-stats prefix from the fallback caption instead of using it as the title", async () => {
+  it("parses the real-world 'stats | title | page' shape into a clean title and a page-name author fallback", async () => {
+    // This is the exact structure reported in the wild: a stats segment
+    // combining two stats with "·", a mixed-script (Latin + Devanagari)
+    // title with hashtags, and a trailing Page name — all HTML-entity
+    // encoded, including hex numeric refs for non-ASCII characters and
+    // the middle dot itself.
+    const rawTitle =
+      "354K views &#xb7; 4.3K reactions | sauth indian hindi movie, " +
+      "&#x928;&#x94d;&#x92f;&#x942; &#x938;&#x93e;&#x909;&#x925; &#x907;&#x902;&#x921;&#x93f;&#x92f;&#x928; " +
+      "&#x939;&#x93f;&#x902;&#x926;&#x940; &#x92e;&#x942;&#x935;&#x940; #movies #sauthsuperhitmovie " +
+      "#hindimovie #newsauthmove | Trending 123";
+
+    mockImpl = async (url) => {
+      if (url.includes("graph.facebook.com")) {
+        return jsonResponse({}); // no author_name, no html — matches the real report
+      }
+      return htmlResponse(`<html><head><meta property="og:title" content="${rawTitle}"></head></html>`);
+    };
+
+    const metadata = await fetchFacebookVideoOEmbed("https://www.facebook.com/reel/1610944483802791/");
+    assert.ok(metadata);
+    // Stats segment gone, Devanagari properly decoded (not raw &#x...;),
+    // and the trailing "| Trending 123" page segment reattached at the
+    // end as the requested "<title> | <authorName>" display format,
+    // instead of either staying stuck to the raw title or being dropped.
+    assert.equal(
+      metadata?.title,
+      "sauth indian hindi movie, न्यू साउथ इंडियन हिंदी मूवी #movies #sauthsuperhitmovie #hindimovie #newsauthmove | Trending 123"
+    );
+    assert.equal(metadata?.authorName, "Trending 123");
+  });
+
+  it("strips a leading engagement-stats prefix and formats the title as '<title> | <authorName>'", async () => {
     mockImpl = async (url) => {
       if (url.includes("graph.facebook.com")) {
         return jsonResponse({
@@ -38,16 +70,16 @@ describe("fetchFacebookVideoOEmbed", () => {
 
     const metadata = await fetchFacebookVideoOEmbed("https://www.facebook.com/reel/9876543210/");
     assert.ok(metadata);
-    assert.equal(metadata?.title, "The Actual Video Title");
+    assert.equal(metadata?.title, "The Actual Video Title | Creator Name");
     assert.equal(metadata?.authorName, "Creator Name");
   });
 
-  it("prefers a clean og:title over a stats-polluted oEmbed title", async () => {
+  it("prefers a clean og:title over a stats-polluted oEmbed title, with no '| author' suffix when no author was found", async () => {
     mockImpl = async (url) => {
       if (url.includes("graph.facebook.com")) {
         return jsonResponse({
           title: "1.2M views · 43K reactions | Some Fallback Title",
-          html: `<blockquote><p>Ignored caption</p>Posted by <a>Someone</a></blockquote>`,
+          html: `<blockquote><p>Ignored caption</p></blockquote>`, // no "Posted by" here
         });
       }
       return htmlResponse(
@@ -56,7 +88,9 @@ describe("fetchFacebookVideoOEmbed", () => {
     };
 
     const metadata = await fetchFacebookVideoOEmbed("https://www.facebook.com/watch/?v=1234567890");
+    // No author resolved from any source, so no "| author" suffix.
     assert.equal(metadata?.title, "Clean Title From OG Tags");
+    assert.equal(metadata?.authorName, null);
   });
 
   it("never returns a Facebook webpage URL as the thumbnail, and prefers oEmbed's thumbnail_url when it's a real image", async () => {

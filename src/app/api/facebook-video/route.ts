@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth } from "@/lib/server/firebase-admin";
 import { resolveFacebookRedirectUrl, fetchFacebookVideoOEmbed } from "@/lib/video-platforms/facebookGraph";
-import { detectVideoProvider, generateCanonicalUrl, generateFacebookOEmbedUrl } from "@/lib/video-platforms";
+import { detectVideoProvider, generateCanonicalUrl, generateFacebookAlternateUrl, generateFacebookOEmbedUrl } from "@/lib/video-platforms";
 
 async function requireAuthenticatedSession(req: NextRequest) {
   const authHeader = req.headers.get("authorization") || "";
@@ -94,10 +94,39 @@ export async function GET(req: NextRequest) {
           }
         : null
     );
-    if (metadata && !metadata.thumbnailUrl) {
+
+    // Defensive retry: some Reels' primary shape comes back with nothing
+    // usable (oEmbed declines, OG-tag scrape empty) even though the same
+    // video id is also reachable — and fully describable — under its
+    // alternate shape (a Reel's /watch/?v= alias, or vice versa). Only
+    // retried for a genuinely empty result (no title at all) — this never
+    // touches `canonicalUrl` itself, so storage and the player embed still
+    // get the original, correct-for-playback shape either way.
+    let finalMetadata = metadata;
+    if (!metadata || metadata.title === "Untitled video") {
+      const alternateUrl = generateFacebookAlternateUrl(sourceUrl);
+      if (alternateUrl) {
+        console.log(`[facebook-video] primary metadata for "${canonicalUrl}" came back untitled — retrying via alternate shape "${alternateUrl}"`);
+        const alternateMetadata = await fetchFacebookVideoOEmbed(alternateUrl, alternateUrl);
+        if (alternateMetadata && alternateMetadata.title !== "Untitled video") {
+          console.log(`[facebook-video] alternate shape produced a usable title for "${canonicalUrl}": "${alternateMetadata.title}"`);
+          // Keep the primary thumbnail if the alternate fetch didn't find
+          // one of its own — no reason to throw away a working thumbnail
+          // just because the title came from a different shape's fetch.
+          finalMetadata = {
+            ...alternateMetadata,
+            thumbnailUrl: alternateMetadata.thumbnailUrl || metadata?.thumbnailUrl || null,
+          };
+        } else {
+          console.log(`[facebook-video] alternate shape for "${canonicalUrl}" was no better — keeping primary result`);
+        }
+      }
+    }
+
+    if (finalMetadata && !finalMetadata.thumbnailUrl) {
       console.warn(`[facebook-video] no usable thumbnail for "${canonicalUrl}" — Graph API has no unauthenticated fallback for a single arbitrary video (see facebookGraph.ts); client falls back to manual thumbnail entry.`);
     }
-    return NextResponse.json({ metadata, canonicalUrl });
+    return NextResponse.json({ metadata: finalMetadata, canonicalUrl });
   } catch (err: any) {
     // Metadata is best-effort for Facebook (see facebookGraph.ts) — a
     // thrown error here still degrades to manual entry rather than

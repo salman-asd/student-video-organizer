@@ -437,7 +437,7 @@ function PersonalPlaylistEditorContent() {
       await addPersonalVideo(ownerId, playlistId, {
         title,
         videoUrl: resolvedVideoUrl,
-        youtubeVideoId: normalized.externalVideoId,
+        youtubeVideoId: normalized.platform === "youtube" || normalized.platform === "youtube-shorts" ? normalized.externalVideoId : null,
         thumbnailUrl: newThumb.trim() || metadataPreview?.thumbnailUrl || "",
         durationSeconds: metadataPreview?.durationSeconds ?? undefined,
         description: newDescription.trim() || metadataPreview?.description || null,

@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import YouTube, { type YouTubeProps, type YouTubePlayer } from "react-youtube";
-import { generateEmbedUrl } from "@/lib/video-platforms";
+import { detectVideoPlatform, generateCanonicalUrl, generateEmbedUrl } from "@/lib/video-platforms";
+import { FacebookEmbed } from "./FacebookEmbed";
 
 interface Props {
   youtubeVideoId?: string | null;
@@ -19,12 +20,17 @@ interface Props {
  * it's the only platform whose iframe exposes a JS API to read/seek
  * playback position (react-youtube's onStateChange/getCurrentTime).
  *
- * For other platforms that provide a public iframe embed (Facebook's
- * plugins/video.php, Vimeo's player.vimeo.com — see generateEmbedUrl),
- * renders that embed directly so the video plays in-app. There's no
- * postMessage progress API for these the way there is for YouTube, so
- * watch position isn't tracked — the same trade-off YouTube's Shorts and
- * every other non-YouTube platform already made before this.
+ * Facebook videos and Reels render via FacebookEmbed (the SDK-based
+ * `fb-video` xfbml player) instead of a bare iframe — see that
+ * component's doc comment for why a plain `plugins/video.php` iframe
+ * isn't used here despite `generateEmbedUrl` still being able to build
+ * one. Vimeo (and anything else with a public direct-iframe embed) still
+ * renders via generateEmbedUrl's iframe URL directly.
+ *
+ * There's no postMessage progress API for Facebook or Vimeo the way
+ * there is for YouTube, so watch position isn't tracked for either — the
+ * same trade-off YouTube's Shorts and every other non-YouTube platform
+ * already made before this.
  *
  * Only when a platform has no public embed mechanism at all (a bare
  * `generic` URL) does this fall back to a simple "open externally" card —
@@ -142,6 +148,17 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
   }, []);
 
   if (!youtubeVideoId) {
+    if (detectVideoPlatform(videoUrl) === "facebook") {
+      // Re-derive the canonical (Reel- or Watch-shaped) URL from whatever
+      // videoUrl actually is, rather than assuming it's already in that
+      // shape — defensive against any pre-fix record that slipped through
+      // storage with a raw/unnormalized URL. generateCanonicalUrl() is
+      // idempotent for an already-canonical URL, so this is a no-op for
+      // every normal record.
+      const href = generateCanonicalUrl(videoUrl) || videoUrl;
+      return <FacebookEmbed key={href} href={href} videoUrl={videoUrl} />;
+    }
+
     const embedUrl = generateEmbedUrl(videoUrl);
 
     if (embedUrl) {
