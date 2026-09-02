@@ -9,6 +9,7 @@ interface Props {
   youtubeVideoId?: string | null;
   videoUrl: string;
   startSeconds?: number;
+  className?: string;
   onProgress: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
   onPause: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
   onEnded: (durationSeconds: number) => void;
@@ -36,7 +37,7 @@ interface Props {
  * `generic` URL) does this fall back to a simple "open externally" card —
  * this app never hosts or proxies video files itself.
  */
-export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProgress, onPause, onEnded }: Props) {
+export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, className, onProgress, onPause, onEnded }: Props) {
   const playerRef = React.useRef<YouTubePlayer | null>(null);
   const intervalRef = React.useRef<ReturnType<typeof setInterval>>();
   // The YouTube IFrame API's own internal messaging can throw (its minified
@@ -156,17 +157,21 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
       // idempotent for an already-canonical URL, so this is a no-op for
       // every normal record.
       const href = generateCanonicalUrl(videoUrl) || videoUrl;
-      return <FacebookEmbed key={href} href={href} videoUrl={videoUrl} />;
+      return <FacebookEmbed key={href} href={href} videoUrl={videoUrl} className={className} />;
     }
 
     const embedUrl = generateEmbedUrl(videoUrl);
 
     if (embedUrl) {
       return (
-        <div className="relative z-0 aspect-video w-full overflow-hidden rounded-lg bg-black">
+        <div className={['relative z-0 w-full overflow-hidden rounded-xl bg-black shadow-sm', className].filter(Boolean).join(' ')}>
+          {/* We do not know whether a generic iframe embed is portrait or
+             landscape until the actual provider tells us. The safe default is
+             to constrain width only and let the embedded player keep its own
+             intrinsic height instead of forcing a landscape 16:9 box. */}
           <iframe
             src={embedUrl}
-            className="h-full w-full"
+            className="block w-full border-0"
             allow="autoplay; encrypted-media; picture-in-picture; web-share"
             allowFullScreen
             title={videoUrl}
@@ -176,7 +181,7 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
     }
 
     return (
-      <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-secondary text-center">
+      <div className={['flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-xl bg-secondary text-center', className].filter(Boolean).join(' ')}>
         <p className="text-sm text-muted-foreground">This video is hosted externally.</p>
         <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-accent underline">
           Open video in a new tab →
@@ -186,7 +191,7 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
   }
 
   return (
-    <div className="relative z-0 aspect-video w-full overflow-hidden rounded-lg bg-black">
+    <div className={['relative z-0 aspect-video w-full overflow-hidden rounded-xl bg-black shadow-sm', className].filter(Boolean).join(' ')}>
       <YouTube
         videoId={youtubeVideoId}
         opts={opts}

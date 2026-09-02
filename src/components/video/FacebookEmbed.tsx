@@ -11,6 +11,7 @@ interface Props {
   /** The original video URL, used only for the "open externally" fallback
    *  link if the embed never renders. */
   videoUrl: string;
+  className?: string;
 }
 
 /**
@@ -35,18 +36,62 @@ interface Props {
  * `key` guarantees the SDK always gets a fresh, unparsed div for whichever
  * video is current (e.g. across Prev/Next in a playlist).
  */
-export function FacebookEmbed({ href, videoUrl }: Props) {
+export function FacebookEmbed({ href, videoUrl, className }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [failed, setFailed] = React.useState(false);
   const appId = getFacebookAppId();
 
   React.useEffect(() => {
     let cancelled = false;
+    const normalizeEmbedSize = () => {
+      const iframe = containerRef.current?.querySelector("iframe");
+      if (!iframe) return;
+
+      iframe.style.width = "100%";
+      iframe.style.height = "auto";
+      iframe.style.maxHeight = "none";
+      iframe.style.display = "block";
+
+      const parent = iframe.parentElement;
+      if (parent) {
+        parent.style.height = "auto";
+        parent.style.maxHeight = "none";
+        parent.style.overflow = "visible";
+      }
+
+      const root = containerRef.current;
+      if (root) {
+        root.style.height = "auto";
+        root.style.maxHeight = "none";
+        root.style.overflow = "visible";
+      }
+    };
+
+    const runNormalization = () => {
+      const frame = containerRef.current?.querySelector("iframe");
+      if (frame) {
+        normalizeEmbedSize();
+        return;
+      }
+      const timer = window.setTimeout(normalizeEmbedSize, 200);
+      return () => window.clearTimeout(timer);
+    };
+
     console.log(`[facebook-video] FacebookEmbed mounting for href="${href}" appId=${appId ?? "(none)"}`);
 
     loadFacebookSdk()
       .then(() => {
-        if (!cancelled) parseFacebookXfbml(containerRef.current);
+        if (!cancelled) {
+          parseFacebookXfbml(containerRef.current);
+          const cleanup = runNormalization();
+          if (cleanup) {
+            const cleanupTimer = window.setTimeout(cleanup, 1500);
+            return () => {
+              window.clearTimeout(cleanupTimer);
+              cleanup();
+            };
+          }
+        }
       })
       .catch((err) => {
         console.error("[facebook-video] failed to load the Facebook SDK for playback:", err);
@@ -89,7 +134,7 @@ export function FacebookEmbed({ href, videoUrl }: Props) {
 
   if (failed) {
     return (
-      <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-secondary text-center">
+      <div className={['flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-xl bg-secondary text-center', className].filter(Boolean).join(' ')}>
         <p className="text-sm text-muted-foreground">This video is hosted externally.</p>
         <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-accent underline">
           Open video in a new tab →
@@ -99,12 +144,11 @@ export function FacebookEmbed({ href, videoUrl }: Props) {
   }
 
   return (
-    <div className="relative z-0 flex min-h-[240px] w-full items-center justify-center overflow-hidden rounded-lg bg-black">
-      {/* No forced 16:9 aspect box here on purpose — Reels are vertical
-         (9:16), and the SDK sizes the rendered iframe to the source
-         video's real aspect ratio via data-width="auto"; forcing 16:9
-         would just crop or letterbox a portrait Reel. */}
-      <div ref={containerRef} className="w-full">
+    <div className={['relative z-0 mx-auto flex w-full items-center justify-center overflow-visible rounded-xl bg-black shadow-sm', className].filter(Boolean).join(' ')}>
+      {/* We do not know portrait vs. landscape ahead of time. The embed
+         should size itself to its own intrinsic ratio, so we constrain only
+         width and never assume a fixed height. */}
+      <div ref={containerRef} className="w-full max-w-full overflow-visible">
         <div
           className="fb-video"
           data-href={href}

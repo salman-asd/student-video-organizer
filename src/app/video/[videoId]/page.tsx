@@ -7,6 +7,7 @@ import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { VideoActionsBar } from "@/components/video/VideoActionsBar";
+import { PlaylistSidebar } from "@/components/video/PlaylistSidebar";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,8 +24,9 @@ import { formatDuration } from "@/lib/utils";
 import { calculateProgress, shouldPersistProgress } from "@/lib/watchProgress";
 import { getExternalWatchAction } from "@/lib/video-platforms";
 import type { Bookmark, PriorityLevel, UserVideoState, Video } from "@/types";
-import { Bookmark as BookmarkIcon, Trash2 } from "lucide-react";
+import { ArrowLeft, Bookmark as BookmarkIcon, PanelRightClose, PanelRightOpen, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { getBackToPlaylistHref, shouldShowPlaylistSidebarOnRight, shouldUsePlaylistSidebar } from "@/lib/watchPage";
 
 export default function VideoPage() {
   return (
@@ -42,6 +44,7 @@ function VideoPageContent() {
   const { user } = useAuth();
 
   const [playlistVideos, setPlaylistVideos] = React.useState<Video[]>([]);
+  const [playlistTitle, setPlaylistTitle] = React.useState<string>("Current playlist");
   const [video, setVideo] = React.useState<Video | null>(null);
   const [state, setState] = React.useState<UserVideoState | null>(null);
   const [note, setNote] = React.useState("");
@@ -50,8 +53,26 @@ function VideoPageContent() {
   const [bookmarkLabel, setBookmarkLabel] = React.useState("");
   const [bookmarkTime, setBookmarkTime] = React.useState("");
   const [loading, setLoading] = React.useState(true);
+  const [playlistVisible, setPlaylistVisible] = React.useState(true);
+  const [viewportWidth, setViewportWidth] = React.useState<number>(0);
   const lastProgressSaveRef = React.useRef(0);
   const previousProgressRef = React.useRef(0);
+
+  React.useEffect(() => {
+    const updateWidth = () => setViewportWidth(window.innerWidth);
+    updateWidth();
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+
+  React.useEffect(() => {
+    const saved = window.localStorage.getItem("videoPlaylistVisible");
+    if (saved !== null) setPlaylistVisible(saved === "true");
+  }, []);
+
+  React.useEffect(() => {
+    window.localStorage.setItem("videoPlaylistVisible", String(playlistVisible));
+  }, [playlistVisible]);
 
   React.useEffect(() => {
     previousProgressRef.current = state?.currentPositionSeconds || 0;
@@ -61,7 +82,8 @@ function VideoPageContent() {
   const load = React.useCallback(async () => {
     if (!user || !playlistId) return;
     setLoading(true);
-    const [vids, s, n, sm, bm] = await Promise.all([
+    const [p, vids, s, n, sm, bm] = await Promise.all([
+      getPlaylist(playlistId),
       listVideos(playlistId),
       getUserVideoState(user.uid, videoId),
       getNote(user.uid, videoId),
@@ -69,6 +91,7 @@ function VideoPageContent() {
       listBookmarks(user.uid, videoId),
     ]);
     setPlaylistVideos(vids);
+    setPlaylistTitle(p?.title || "Current playlist");
     setVideo(vids.find((v) => v.id === videoId) || null);
     setState(s);
     setNote(n?.content || "");
@@ -99,6 +122,9 @@ function VideoPageContent() {
   const index = playlistVideos.findIndex((v) => v.id === videoId);
   const prev = index > 0 ? playlistVideos[index - 1] : null;
   const next = index >= 0 && index < playlistVideos.length - 1 ? playlistVideos[index + 1] : null;
+  const backToPlaylistHref = getBackToPlaylistHref(playlistId, null);
+  const showPlaylistSidebar = playlistVisible;
+  const sidebarOnRight = shouldShowPlaylistSidebarOnRight(viewportWidth || 1440);
   const externalWatchAction = React.useMemo(() => getExternalWatchAction(video?.videoUrl || ""), [video?.videoUrl]);
 
   async function handleProgress(cur: number, dur: number, force = false) {
@@ -188,104 +214,137 @@ function VideoPageContent() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-4xl space-y-5">
-        <VideoPlayer
-          youtubeVideoId={video.youtubeVideoId}
-          videoUrl={video.videoUrl}
-          startSeconds={state?.currentPositionSeconds || 0}
-          onProgress={handleProgress}
-          onPause={handleProgress}
-          onEnded={handleEnded}
-        />
+      <div className="mx-auto max-w-7xl space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button asChild variant="outline" size="sm" className="gap-2">
+            <a href={backToPlaylistHref} className="inline-flex items-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Playlist
+            </a>
+          </Button>
 
-        <div>
-          <h1 className="font-display text-xl font-semibold">{video.title}</h1>
-          <p className="text-sm text-muted-foreground">{formatDuration(video.durationSeconds)}</p>
+          {playlistVideos.length > 1 && (
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => setPlaylistVisible((v) => !v)}>
+              {playlistVisible ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+              {playlistVisible ? "Hide playlist" : "Show playlist"}
+            </Button>
+          )}
         </div>
 
-        <div className="space-y-1.5">
-          <Progress value={state?.watchedPercentage || 0} />
-          <p className="text-xs text-muted-foreground">{state?.watchedPercentage || 0}% watched</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={externalWatchAction.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            {externalWatchAction.label}
-          </a>
-          <VideoActionsBar
-            isFavorite={!!state?.isFavorite}
-            isWatchLater={!!state?.isWatchLater}
-            priority={state?.priority || null}
-            isCompleted={state?.status === "completed"}
-            hasPrevious={!!prev}
-            hasNext={!!next}
-            onPrevious={() => prev && router.push(`/video/${prev.id}?playlist=${playlistId}`)}
-            onNext={() => next && router.push(`/video/${next.id}?playlist=${playlistId}`)}
-            onToggleFavorite={handleToggleFavorite}
-            onToggleWatchLater={handleToggleWatchLater}
-            onSetPriority={handleSetPriority}
-            onToggleWatched={handleToggleWatched}
-          />
-        </div>
-
-        <Tabs defaultValue="summary">
-          <TabsList>
-            <TabsTrigger value="summary">Summary</TabsTrigger>
-            <TabsTrigger value="notes">Notes</TabsTrigger>
-            <TabsTrigger value="bookmarks">Bookmarks</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="summary">
-            <Textarea
-              value={summary}
-              onChange={(e) => { setSummary(e.target.value); debouncedSaveSummary(e.target.value); }}
-              placeholder="Write your own summary of this video's key ideas…"
-              className="min-h-[140px]"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">Autosaves as you type. Only visible to you (and admins).</p>
-          </TabsContent>
-
-          <TabsContent value="notes">
-            <div className="space-y-3">
-              <Textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Take notes while you watch…"
-                className="min-h-[140px]"
+        <div className={showPlaylistSidebar && sidebarOnRight ? "grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]" : "space-y-5"}>
+          <div className="space-y-5">
+            <div className="mx-auto w-full max-w-5xl">
+              <VideoPlayer
+                youtubeVideoId={video.youtubeVideoId}
+                videoUrl={video.videoUrl}
+                startSeconds={state?.currentPositionSeconds || 0}
+                className={sidebarOnRight ? "max-h-[72vh]" : undefined}
+                onProgress={handleProgress}
+                onPause={handleProgress}
+                onEnded={handleEnded}
               />
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={handleSaveNote} size="sm">{note.trim() ? "Save note" : "Clear note"}</Button>
-                <Button variant="outline" size="sm" onClick={handleDeleteNote} disabled={!note.trim()}>Delete note</Button>
-              </div>
-              <p className="text-xs text-muted-foreground">Private to you. Not included in shared or public video pages.</p>
             </div>
-          </TabsContent>
 
-          <TabsContent value="bookmarks" className="space-y-3">
-            <div className="flex gap-2">
-              <Input value={bookmarkTime} onChange={(e) => setBookmarkTime(e.target.value)} placeholder="mm:ss (optional)" className="w-32" />
-              <Input value={bookmarkLabel} onChange={(e) => setBookmarkLabel(e.target.value)} placeholder="What's here?" className="flex-1" />
-              <Button onClick={handleAddBookmark}><BookmarkIcon className="h-4 w-4" /> Add</Button>
+            <div>
+              <h1 className="font-display text-xl font-semibold">{video.title}</h1>
+              <p className="text-sm text-muted-foreground">{formatDuration(video.durationSeconds)}</p>
             </div>
+
             <div className="space-y-1.5">
-              {bookmarks.length === 0 && <p className="text-sm text-muted-foreground">No bookmarks yet.</p>}
-              {bookmarks.map((b) => (
-                <div key={b.id} className="flex items-center gap-2 rounded-md border border-border p-2">
-                  <Badge variant="secondary" className="font-mono">{formatDuration(b.timestampSeconds)}</Badge>
-                  <span className="flex-1 text-sm">{b.label}</span>
-                  <Button variant="ghost" size="icon" onClick={async () => { await removeBookmark(user!.uid, video.id, b.id); setBookmarks(await listBookmarks(user!.uid, video.id)); }}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+              <Progress value={state?.watchedPercentage || 0} />
+              <p className="text-xs text-muted-foreground">{state?.watchedPercentage || 0}% watched</p>
             </div>
-          </TabsContent>
-        </Tabs>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={externalWatchAction.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                {externalWatchAction.label}
+              </a>
+              <VideoActionsBar
+                isFavorite={!!state?.isFavorite}
+                isWatchLater={!!state?.isWatchLater}
+                priority={state?.priority || null}
+                isCompleted={state?.status === "completed"}
+                hasPrevious={!!prev}
+                hasNext={!!next}
+                onPrevious={() => prev && router.push(`/video/${prev.id}?playlist=${playlistId}`)}
+                onNext={() => next && router.push(`/video/${next.id}?playlist=${playlistId}`)}
+                onToggleFavorite={handleToggleFavorite}
+                onToggleWatchLater={handleToggleWatchLater}
+                onSetPriority={handleSetPriority}
+                onToggleWatched={handleToggleWatched}
+              />
+            </div>
+
+            <Tabs defaultValue="summary">
+              <TabsList>
+                <TabsTrigger value="summary">Summary</TabsTrigger>
+                <TabsTrigger value="notes">Notes</TabsTrigger>
+                <TabsTrigger value="bookmarks">Bookmarks</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="summary">
+                <Textarea
+                  value={summary}
+                  onChange={(e) => { setSummary(e.target.value); debouncedSaveSummary(e.target.value); }}
+                  placeholder="Write your own summary of this video's key ideas…"
+                  className="min-h-[140px]"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">Autosaves as you type. Only visible to you (and admins).</p>
+              </TabsContent>
+
+              <TabsContent value="notes">
+                <div className="space-y-3">
+                  <Textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Take notes while you watch…"
+                    className="min-h-[140px]"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={handleSaveNote} size="sm">{note.trim() ? "Save note" : "Clear note"}</Button>
+                    <Button variant="outline" size="sm" onClick={handleDeleteNote} disabled={!note.trim()}>Delete note</Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Private to you. Not included in shared or public video pages.</p>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="bookmarks" className="space-y-3">
+                <div className="flex gap-2">
+                  <Input value={bookmarkTime} onChange={(e) => setBookmarkTime(e.target.value)} placeholder="mm:ss (optional)" className="w-32" />
+                  <Input value={bookmarkLabel} onChange={(e) => setBookmarkLabel(e.target.value)} placeholder="What's here?" className="flex-1" />
+                  <Button onClick={handleAddBookmark}><BookmarkIcon className="h-4 w-4" /> Add</Button>
+                </div>
+                <div className="space-y-1.5">
+                  {bookmarks.length === 0 && <p className="text-sm text-muted-foreground">No bookmarks yet.</p>}
+                  {bookmarks.map((b) => (
+                    <div key={b.id} className="flex items-center gap-2 rounded-md border border-border p-2">
+                      <Badge variant="secondary" className="font-mono">{formatDuration(b.timestampSeconds)}</Badge>
+                      <span className="flex-1 text-sm">{b.label}</span>
+                      <Button variant="ghost" size="icon" onClick={async () => { await removeBookmark(user!.uid, video.id, b.id); setBookmarks(await listBookmarks(user!.uid, video.id)); }}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          {showPlaylistSidebar && playlistVisible && (
+            <PlaylistSidebar
+              videos={playlistVideos}
+              currentVideoId={video.id}
+              playlistId={playlistId}
+              title={playlistTitle}
+              className={sidebarOnRight ? "xl:sticky xl:top-4" : "w-full"}
+            />
+          )}
+        </div>
       </div>
     </AppShell>
   );

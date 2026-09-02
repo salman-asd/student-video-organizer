@@ -7,13 +7,14 @@ import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { VideoActionsBar } from "@/components/video/VideoActionsBar";
+import { PlaylistSidebar } from "@/components/video/PlaylistSidebar";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Lock } from "lucide-react";
+import { ArrowLeft, Lock, PanelRightClose, PanelRightOpen } from "lucide-react";
 import {
   getPersonalPlaylist, getPersonalVideo, listPersonalVideos, savePersonalVideoProgress, setPersonalVideoPriority,
   setPersonalVideoWatched, togglePersonalVideoFavorite, togglePersonalVideoWatchLater,
@@ -25,6 +26,7 @@ import { calculateProgress, shouldPersistProgress } from "@/lib/watchProgress";
 import { getExternalWatchAction } from "@/lib/video-platforms";
 import type { PersonalVideo, PriorityLevel } from "@/types";
 import { toast } from "sonner";
+import { getBackToPlaylistHref, shouldShowPlaylistSidebarOnRight, shouldUsePlaylistSidebar } from "@/lib/watchPage";
 
 // Personal videos reuse the notes/summaries collections but namespace the
 // doc id with a "p_" prefix so they can never collide with a shared-library
@@ -49,12 +51,31 @@ function PersonalVideoContent() {
 
   const [video, setVideo] = React.useState<PersonalVideo | null>(null);
   const [playlistVideos, setPlaylistVideos] = React.useState<PersonalVideo[]>([]);
+  const [playlistTitle, setPlaylistTitle] = React.useState<string>("Current playlist");
   const [autoPlay, setAutoPlay] = React.useState(false);
   const [note, setNote] = React.useState("");
   const [summary, setSummary] = React.useState("");
   const [loading, setLoading] = React.useState(true);
+  const [playlistVisible, setPlaylistVisible] = React.useState(true);
+  const [viewportWidth, setViewportWidth] = React.useState<number>(0);
   const lastProgressSaveRef = React.useRef(0);
   const previousProgressRef = React.useRef(0);
+
+  React.useEffect(() => {
+    const updateWidth = () => setViewportWidth(window.innerWidth);
+    updateWidth();
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+
+  React.useEffect(() => {
+    const saved = window.localStorage.getItem("videoPlaylistVisible");
+    if (saved !== null) setPlaylistVisible(saved === "true");
+  }, []);
+
+  React.useEffect(() => {
+    window.localStorage.setItem("videoPlaylistVisible", String(playlistVisible));
+  }, [playlistVisible]);
 
   React.useEffect(() => {
     previousProgressRef.current = video?.currentPositionSeconds || 0;
@@ -73,6 +94,7 @@ function PersonalVideoContent() {
     ]);
     setVideo(v);
     setPlaylistVideos(vids);
+    setPlaylistTitle(pl?.title || "Current playlist");
     setNote(n?.content || "");
     setSummary(sm?.content || "");
     setAutoPlay(!!pl?.autoPlay);
@@ -102,6 +124,9 @@ function PersonalVideoContent() {
   const prev = index > 0 ? playlistVideos[index - 1] : null;
   const next = index >= 0 && index < playlistVideos.length - 1 ? playlistVideos[index + 1] : null;
   const suffix = isViewingOther ? `?owner=${ownerId}` : "";
+  const backToPlaylistHref = getBackToPlaylistHref(playlistId, ownerId || null);
+  const showPlaylistSidebar = playlistVisible;
+  const sidebarOnRight = shouldShowPlaylistSidebarOnRight(viewportWidth || 1440);
   const externalWatchAction = React.useMemo(() => getExternalWatchAction(video?.videoUrl || ""), [video?.videoUrl]);
 
   async function handleProgress(cur: number, dur: number, force = false) {
@@ -186,82 +211,116 @@ function PersonalVideoContent() {
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-4xl space-y-5">
-        <VideoPlayer
-          youtubeVideoId={video.youtubeVideoId}
-          videoUrl={video.videoUrl}
-          startSeconds={video.currentPositionSeconds || 0}
-          onProgress={handleProgress}
-          onPause={handleProgress}
-          onEnded={handleEnded}
-        />
+      <div className="mx-auto max-w-7xl space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button asChild variant="outline" size="sm" className="gap-2">
+            <a href={backToPlaylistHref} className="inline-flex items-center gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Playlist
+            </a>
+          </Button>
 
-        <div>
-          <h1 className="font-display text-xl font-semibold flex items-center gap-2">
-            <Lock className="h-4 w-4 text-accent" /> {video.title}
-          </h1>
-          <p className="text-sm text-muted-foreground">{formatDuration(video.durationSeconds)} · Personal video{isViewingOther ? " (viewing as admin)" : ""}</p>
+          {playlistVideos.length > 1 && (
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => setPlaylistVisible((v) => !v)}>
+              {playlistVisible ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+              {playlistVisible ? "Hide playlist" : "Show playlist"}
+            </Button>
+          )}
         </div>
 
-        <div className="space-y-1.5">
-          <Progress value={video.watchedPercentage} />
-          <p className="text-xs text-muted-foreground">{video.watchedPercentage}% watched</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={externalWatchAction.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            {externalWatchAction.label}
-          </a>
-          <VideoActionsBar
-            isFavorite={video.isFavorite}
-            isWatchLater={video.isWatchLater}
-            priority={video.priority}
-            isCompleted={video.status === "completed"}
-            hasPrevious={!!prev}
-            hasNext={!!next}
-            onPrevious={() => prev && router.push(`/my-playlists/${playlistId}/${prev.id}${suffix}`)}
-            onNext={() => next && router.push(`/my-playlists/${playlistId}/${next.id}${suffix}`)}
-            onToggleFavorite={handleToggleFavorite}
-            onToggleWatchLater={handleToggleWatchLater}
-            onSetPriority={handleSetPriority}
-            onToggleWatched={handleToggleWatched}
-          />
-        </div>
-
-        <Tabs defaultValue="summary">
-          <TabsList>
-            <TabsTrigger value="summary">Summary</TabsTrigger>
-            <TabsTrigger value="notes">Notes</TabsTrigger>
-          </TabsList>
-          <TabsContent value="summary">
-            <Textarea
-              value={summary}
-              onChange={(e) => { setSummary(e.target.value); debouncedSaveSummary(e.target.value); }}
-              placeholder="Write your own summary…"
-              className="min-h-[140px]"
-            />
-          </TabsContent>
-          <TabsContent value="notes">
-            <div className="space-y-3">
-              <Textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Take notes while you watch…"
-                className="min-h-[140px]"
+        <div className={showPlaylistSidebar && sidebarOnRight ? "grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]" : "space-y-5"}>
+          <div className="space-y-5">
+            <div className="mx-auto w-full max-w-5xl">
+              <VideoPlayer
+                youtubeVideoId={video.youtubeVideoId}
+                videoUrl={video.videoUrl}
+                startSeconds={video.currentPositionSeconds || 0}
+                className={sidebarOnRight ? "max-h-[72vh]" : undefined}
+                onProgress={handleProgress}
+                onPause={handleProgress}
+                onEnded={handleEnded}
               />
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={handleSaveNote} size="sm">{note.trim() ? "Save note" : "Clear note"}</Button>
-                <Button variant="outline" size="sm" onClick={handleDeleteNote} disabled={!note.trim()}>Delete note</Button>
-              </div>
-              <p className="text-xs text-muted-foreground">Private to this user. Hidden from any shared or public playlist/video views.</p>
             </div>
-          </TabsContent>
-        </Tabs>
+
+            <div>
+              <h1 className="font-display text-xl font-semibold flex items-center gap-2">
+                <Lock className="h-4 w-4 text-accent" /> {video.title}
+              </h1>
+              <p className="text-sm text-muted-foreground">{formatDuration(video.durationSeconds)} · Personal video{isViewingOther ? " (viewing as admin)" : ""}</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Progress value={video.watchedPercentage} />
+              <p className="text-xs text-muted-foreground">{video.watchedPercentage}% watched</p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href={externalWatchAction.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                {externalWatchAction.label}
+              </a>
+              <VideoActionsBar
+                isFavorite={video.isFavorite}
+                isWatchLater={video.isWatchLater}
+                priority={video.priority}
+                isCompleted={video.status === "completed"}
+                hasPrevious={!!prev}
+                hasNext={!!next}
+                onPrevious={() => prev && router.push(`/my-playlists/${playlistId}/${prev.id}${suffix}`)}
+                onNext={() => next && router.push(`/my-playlists/${playlistId}/${next.id}${suffix}`)}
+                onToggleFavorite={handleToggleFavorite}
+                onToggleWatchLater={handleToggleWatchLater}
+                onSetPriority={handleSetPriority}
+                onToggleWatched={handleToggleWatched}
+              />
+            </div>
+
+            <Tabs defaultValue="summary">
+              <TabsList>
+                <TabsTrigger value="summary">Summary</TabsTrigger>
+                <TabsTrigger value="notes">Notes</TabsTrigger>
+              </TabsList>
+              <TabsContent value="summary">
+                <Textarea
+                  value={summary}
+                  onChange={(e) => { setSummary(e.target.value); debouncedSaveSummary(e.target.value); }}
+                  placeholder="Write your own summary…"
+                  className="min-h-[140px]"
+                />
+              </TabsContent>
+              <TabsContent value="notes">
+                <div className="space-y-3">
+                  <Textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Take notes while you watch…"
+                    className="min-h-[140px]"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={handleSaveNote} size="sm">{note.trim() ? "Save note" : "Clear note"}</Button>
+                    <Button variant="outline" size="sm" onClick={handleDeleteNote} disabled={!note.trim()}>Delete note</Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Private to this user. Hidden from any shared or public playlist/video views.</p>
+                </div>
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          {showPlaylistSidebar && (
+            <PlaylistSidebar
+              videos={playlistVideos}
+              currentVideoId={video.id}
+              playlistId={playlistId}
+              ownerId={ownerId}
+              title={playlistTitle}
+              className={sidebarOnRight ? "xl:sticky xl:top-4" : "w-full"}
+            />
+          )}
+        </div>
       </div>
     </AppShell>
   );
