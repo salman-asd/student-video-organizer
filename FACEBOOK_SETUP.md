@@ -12,6 +12,17 @@ Add to your deployment's environment (e.g. `.env.local` for local dev):
 FACEBOOK_APP_ID=your_app_id
 FACEBOOK_APP_SECRET=your_app_secret
 
+# Same App ID as above, duplicated into a NEXT_PUBLIC_ var so it's
+# available to the browser bundle. Required for reliable in-app Facebook
+# video/Reel PLAYBACK (not metadata fetching) — Meta retired anonymous,
+# automated Facebook embeds on 3 Nov 2025, and the "Embedded Video
+# Player" plugin (components/video/FacebookEmbed.tsx) can silently fail
+# to render anything at all without an App ID initialized on the SDK.
+# An App ID is not a secret (it's the same value that appears in every
+# Facebook "Login" button and every embed snippet Facebook itself
+# generates) — only FACEBOOK_APP_SECRET above needs to stay server-side.
+NEXT_PUBLIC_FACEBOOK_APP_ID=your_app_id
+
 # Only required if you want to support importing a Facebook Page's video
 # collection/playlist (the "Import Playlist / Collection" flow). Needs a
 # Page access token with video read permission for that specific Page.
@@ -24,6 +35,14 @@ Without `FACEBOOK_APP_ID`/`FACEBOOK_APP_SECRET`, Facebook videos still work
 end-to-end — they just fall back to the same manual title/thumbnail entry
 the app already uses for any URL it can't fetch metadata for. Nothing is
 blocked by missing credentials; capability only gets richer once they're set.
+
+Without `NEXT_PUBLIC_FACEBOOK_APP_ID` specifically, in-app **playback**
+(not metadata) is unreliable — the video/Reel plugin often renders
+nothing at all rather than erroring, which shows up as a permanently
+black player until FacebookEmbed's 6-second timeout falls back to an
+"Open video in a new tab" link. Setting this one var is the single most
+effective fix if videos are adding fine (title/thumbnail show up) but
+won't actually play in-app.
 
 ## One thing outside this diff: `next.config`'s image domains
 

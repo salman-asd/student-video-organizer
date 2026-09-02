@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard, ListVideo, Clock, Star, Flag, PlayCircle, BookOpen,
+  LayoutDashboard, ListVideo, Clock, Star, Flag, PlayCircle, BookOpen, BookOpenCheck,
   ShieldCheck, Users, FolderKanban, Tags, FileJson, Youtube, Target, X, Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,7 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
   const content = (
     <div className="flex h-full flex-col gap-6 overflow-y-auto px-3 py-5">
       <Link href="/dashboard" className="flex items-center gap-2 px-2" onClick={onClose}>
-        <BookOpen className="h-6 w-6 text-accent" />
+        <BookOpenCheck className="h-6 w-6 text-accent" />
         <span className="font-display text-lg font-semibold tracking-tight">Study Lamp</span>
       </Link>
 

@@ -2,12 +2,14 @@
 
 import * as React from "react";
 import YouTube, { type YouTubeProps, type YouTubePlayer } from "react-youtube";
-import { generateEmbedUrl } from "@/lib/video-platforms";
+import { detectVideoPlatform, generateCanonicalUrl, generateEmbedUrl } from "@/lib/video-platforms";
+import { FacebookEmbed } from "./FacebookEmbed";
 
 interface Props {
   youtubeVideoId?: string | null;
   videoUrl: string;
   startSeconds?: number;
+  className?: string;
   onProgress: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
   onPause: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
   onEnded: (durationSeconds: number) => void;
@@ -19,18 +21,23 @@ interface Props {
  * it's the only platform whose iframe exposes a JS API to read/seek
  * playback position (react-youtube's onStateChange/getCurrentTime).
  *
- * For other platforms that provide a public iframe embed (Facebook's
- * plugins/video.php, Vimeo's player.vimeo.com — see generateEmbedUrl),
- * renders that embed directly so the video plays in-app. There's no
- * postMessage progress API for these the way there is for YouTube, so
- * watch position isn't tracked — the same trade-off YouTube's Shorts and
- * every other non-YouTube platform already made before this.
+ * Facebook videos and Reels render via FacebookEmbed (the SDK-based
+ * `fb-video` xfbml player) instead of a bare iframe — see that
+ * component's doc comment for why a plain `plugins/video.php` iframe
+ * isn't used here despite `generateEmbedUrl` still being able to build
+ * one. Vimeo (and anything else with a public direct-iframe embed) still
+ * renders via generateEmbedUrl's iframe URL directly.
+ *
+ * There's no postMessage progress API for Facebook or Vimeo the way
+ * there is for YouTube, so watch position isn't tracked for either — the
+ * same trade-off YouTube's Shorts and every other non-YouTube platform
+ * already made before this.
  *
  * Only when a platform has no public embed mechanism at all (a bare
  * `generic` URL) does this fall back to a simple "open externally" card —
  * this app never hosts or proxies video files itself.
  */
-export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProgress, onPause, onEnded }: Props) {
+export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, className, onProgress, onPause, onEnded }: Props) {
   const playerRef = React.useRef<YouTubePlayer | null>(null);
   const intervalRef = React.useRef<ReturnType<typeof setInterval>>();
   // The YouTube IFrame API's own internal messaging can throw (its minified
@@ -142,14 +149,29 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
   }, []);
 
   if (!youtubeVideoId) {
+    if (detectVideoPlatform(videoUrl) === "facebook") {
+      // Re-derive the canonical (Reel- or Watch-shaped) URL from whatever
+      // videoUrl actually is, rather than assuming it's already in that
+      // shape — defensive against any pre-fix record that slipped through
+      // storage with a raw/unnormalized URL. generateCanonicalUrl() is
+      // idempotent for an already-canonical URL, so this is a no-op for
+      // every normal record.
+      const href = generateCanonicalUrl(videoUrl) || videoUrl;
+      return <FacebookEmbed key={href} href={href} videoUrl={videoUrl} className={className} />;
+    }
+
     const embedUrl = generateEmbedUrl(videoUrl);
 
     if (embedUrl) {
       return (
-        <div className="relative z-0 aspect-video w-full overflow-hidden rounded-lg bg-black">
+        <div className={['relative z-0 w-full overflow-hidden rounded-xl bg-black shadow-sm', className].filter(Boolean).join(' ')}>
+          {/* We do not know whether a generic iframe embed is portrait or
+             landscape until the actual provider tells us. The safe default is
+             to constrain width only and let the embedded player keep its own
+             intrinsic height instead of forcing a landscape 16:9 box. */}
           <iframe
             src={embedUrl}
-            className="h-full w-full"
+            className="block w-full border-0"
             allow="autoplay; encrypted-media; picture-in-picture; web-share"
             allowFullScreen
             title={videoUrl}
@@ -159,7 +181,7 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
     }
 
     return (
-      <div className="flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-lg bg-secondary text-center">
+      <div className={['flex aspect-video w-full flex-col items-center justify-center gap-3 rounded-xl bg-secondary text-center', className].filter(Boolean).join(' ')}>
         <p className="text-sm text-muted-foreground">This video is hosted externally.</p>
         <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-accent underline">
           Open video in a new tab →
@@ -169,7 +191,7 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, onProg
   }
 
   return (
-    <div className="relative z-0 aspect-video w-full overflow-hidden rounded-lg bg-black">
+    <div className={['relative z-0 aspect-video w-full overflow-hidden rounded-xl bg-black shadow-sm', className].filter(Boolean).join(' ')}>
       <YouTube
         videoId={youtubeVideoId}
         opts={opts}

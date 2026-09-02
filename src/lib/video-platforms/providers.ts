@@ -230,21 +230,103 @@ export class FacebookVideoProvider implements VideoUrlProvider {
     return null;
   }
 
+  private isReelPath(pathname: string): boolean {
+    return pathname.toLowerCase().startsWith("/reel/");
+  }
+
+  /**
+   * Reel and non-Reel Facebook video URLs are NOT interchangeable for
+   * anything downstream (oEmbed metadata, the plugins/video.php player
+   * embed) — a Reel forced into `/watch/?v=` shape doesn't error, it just
+   * silently degrades: oEmbed falls back to a generic "blockquote" (link +
+   * caption, no real title/thumbnail — see facebookGraph.ts), and the
+   * video.php iframe embed renders a black player instead of the video.
+   * Meta's own official "Meta Embeds" WordPress plugin
+   * (github.com/facebook/meta-embeds-for-wordpress) documents Reels as
+   * needing their own `/reel/{reel-id}/` shape specifically, distinct from
+   * `/watch/?v=`.
+   *
+   * So canonicalUrl() preserves that distinction instead of collapsing
+   * everything to `/watch/?v=`: a Reel's canonical (and thus *stored*, per
+   * the videoUrl field every other call in this file/route ultimately
+   * derives from) URL stays `/reel/{id}/`; anything else still normalizes
+   * to `/watch/?v={id}`. Every other Facebook URL shape this class
+   * recognizes (/videos/, /video.php, /watch/?v=, /watch/, an `href=`
+   * query wrapper) is treated as "not a Reel" and takes the `/watch/?v=`
+   * form, matching the previous behavior for those shapes.
+   */
   canonicalUrl(url: string): string | null {
+    const parsed = parseVideoUrl(url);
     const videoId = this.extractVideoId(url);
-    if (!videoId) return null;
+    if (!parsed || !videoId) return null;
+
+    if (this.isReelPath(parsed.pathname)) {
+      return `https://www.facebook.com/reel/${videoId}/`;
+    }
     return `https://www.facebook.com/watch/?v=${videoId}`;
+  }
+
+  /**
+   * The URL shape to send to Facebook's oEmbed Video endpoint. Now just an
+   * alias for canonicalUrl() — kept as its own named method (rather than
+   * inlining `generateCanonicalUrl` calls at oEmbed call sites) so the
+   * "this is the URL oEmbed needs" intent stays documented at the call
+   * site even though the shape logic itself now lives in one place.
+   * Historically this used to carry its own separate Reel-detection logic
+   * that canonicalUrl() didn't share, which is exactly what let the two
+   * drift apart and produce a working oEmbed response alongside a broken
+   * (`/watch/?v=`-only) player embed for the same Reel — see canonicalUrl's
+   * doc comment. Single source of truth avoids that recurring.
+   */
+  oEmbedUrl(url: string): string | null {
+    return this.canonicalUrl(url);
   }
 
   originalWatchUrl(url: string): string | null {
     return this.canonicalUrl(url);
   }
 
+  /**
+   * The "other" canonical shape for the same video id — a Reel's
+   * /watch/?v= alias, or a non-Reel's /reel/{id}/ alias. Some Reels are
+   * also independently reachable under /watch/?v= (and vice versa), and
+   * their oEmbed/OG-tag results aren't always equally complete for both
+   * shapes of the same id — see fetchFacebookVideoOEmbed's retry logic in
+   * facebookGraph.ts, invoked via generateFacebookAlternateUrl below, for
+   * where this is used as a defensive metadata-only fallback. Never used
+   * for storage or the player embed — canonicalUrl() alone still governs
+   * both of those.
+   */
+  alternateCanonicalUrl(url: string): string | null {
+    const parsed = parseVideoUrl(url);
+    const videoId = this.extractVideoId(url);
+    if (!parsed || !videoId) return null;
+    return this.isReelPath(parsed.pathname)
+      ? `https://www.facebook.com/watch/?v=${videoId}`
+      : `https://www.facebook.com/reel/${videoId}/`;
+  }
+
+  /**
+   * plugins/video.php's `href` — kept for API completeness (the
+   * NormalizedVideoUrl.embedUrl field other platforms populate this way
+   * too) and still correct for regular Facebook Watch videos. It is,
+   * however, NOT what actually powers in-app Facebook playback anymore:
+   * confirmed in practice, a Reel rendered through this iframe stays
+   * black even when `href` is Reel-shaped (see canonicalUrl's doc
+   * comment for the shape fix, which fixed oEmbed metadata but turned out
+   * not to be sufficient for the player on its own). Meta's own
+   * "Embedded Video Player" docs point at a different mechanism for
+   * that — the `fb-video` xfbml element plus the Facebook JS SDK, which
+   * their own generated Reel embed code uses `data-href` for. VideoPlayer
+   * renders Facebook videos with that mechanism instead (see
+   * components/video/FacebookEmbed.tsx and lib/facebookSdk.ts), bypassing
+   * this method entirely for Facebook's actual player.
+   */
   embedUrl(url: string): string | null {
     const videoId = this.extractVideoId(url);
     if (!videoId) return null;
-    const watchUrl = this.canonicalUrl(url)!;
-    return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(watchUrl)}&show_text=false`;
+    const playableUrl = this.canonicalUrl(url)!;
+    return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(playableUrl)}&show_text=false`;
   }
 
   normalize(url: string): NormalizedVideoUrl | null {
@@ -376,6 +458,32 @@ export const videoPlatformProviders: VideoUrlProvider[] = [
   new VimeoVideoProvider(),
   new GenericVideoProvider(),
 ];
+
+// Reused directly (rather than re-instantiated) by generateFacebookOEmbedUrl
+// below, since oEmbedUrl() is specific to FacebookVideoProvider and isn't
+// part of the generic VideoUrlProvider interface every other provider
+// implements.
+const facebookVideoProvider = videoPlatformProviders.find(
+  (p): p is FacebookVideoProvider => p instanceof FacebookVideoProvider
+)!;
+
+/**
+ * The URL shape to hand to Facebook's oEmbed Video endpoint (see
+ * FacebookVideoProvider.oEmbedUrl for why this differs from
+ * generateCanonicalUrl for Reels). Returns null for any non-Facebook URL.
+ */
+export function generateFacebookOEmbedUrl(url: string): string | null {
+  return facebookVideoProvider.oEmbedUrl(url);
+}
+
+/**
+ * The "other" Facebook URL shape for the same video id (Reel ↔ watch) —
+ * see FacebookVideoProvider.alternateCanonicalUrl. Returns null for any
+ * non-Facebook URL.
+ */
+export function generateFacebookAlternateUrl(url: string): string | null {
+  return facebookVideoProvider.alternateCanonicalUrl(url);
+}
 
 function isKnownVideoHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
