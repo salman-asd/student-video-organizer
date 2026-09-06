@@ -3,6 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // ── Auth helpers ─────────────────────────────────────────────────────
     function isSignedIn() {
       return request.auth != null;
     }
@@ -27,16 +28,75 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'active';
     }
 
+    // ── Shape/validation helpers ───────────────────────────────────────
+    // These validate "IF the field is present in the resulting document,
+    // it must be well-formed" rather than "the field must always be
+    // present." Most write paths in this app use partial
+    // setDoc(ref, patch, {merge:true}) / updateDoc() / batch.update() calls
+    // that only touch a handful of fields at a time (e.g.
+    // reorderPersonalVideoList only ever writes {priorityOrder,
+    // updatedAt}). Firestore evaluates request.resource.data for those
+    // calls as the *merged resulting document*, so requiring a field to
+    // always be present would reject legitimate partial writes the very
+    // first time a doc happens to be touched by an incomplete patch.
+    // Range/enum/type checks still catch a malformed or hostile value
+    // every time that field does appear.
+    function optionalString(data, key, maxLen) {
+      return !(key in data) || data[key] == null ||
+        (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function optionalNumberInRange(data, key, min, max) {
+      return !(key in data) ||
+        (data[key] is number && data[key] >= min && data[key] <= max);
+    }
+
+    function optionalBool(data, key) {
+      return !(key in data) || data[key] is bool;
+    }
+
+    function optionalEnum(data, key, allowed) {
+      return !(key in data) || data[key] in allowed;
+    }
+
+    function optionalNullableEnum(data, key, allowed) {
+      return !(key in data) || data[key] == null || data[key] in allowed;
+    }
+
+    function optionalTimestamp(data, key) {
+      return !(key in data) || data[key] == null || data[key] is timestamp;
+    }
+
+    // ── Sharing state helpers ───────────────────────────────────────────
+    function isShareRevoked(data) {
+      return ('revokedAt' in data) && data.revokedAt != null;
+    }
+
+    // A missing `expiresAt` field (every share doc written before this
+    // feature existed) is treated as "never expires" via the `'expiresAt'
+    // in data` existence check — reading a missing map key directly (e.g.
+    // `data.expiresAt`) throws in these rules and would otherwise lock
+    // every pre-existing share out the moment this rule deployed.
+    function isShareExpired(data) {
+      return ('expiresAt' in data) && data.expiresAt != null && data.expiresAt < request.time;
+    }
+
     function isShareActive(data) {
-      return data.revokedAt == null;
+      return !isShareRevoked(data) && !isShareExpired(data);
     }
 
     // ── Users & personal learning data ─────────────────────────────────
     match /users/{uid} {
       allow read: if isSelf(uid) || isAdmin();
+      // Users may create only their own profile, and only with a valid
+      // role/status pair (AuthProvider.tsx always sets both on first
+      // sign-in) — stops a crafted client write from creating a
+      // half-formed or already-admin profile document.
+      allow create: if isSelf(uid) &&
+        request.resource.data.role in ['admin', 'student'] &&
+        request.resource.data.status in ['active', 'disabled'];
       // Users may update their own profile EXCEPT role/status (privilege
       // escalation guard). Admins may update anything on any profile.
-      allow create: if isSelf(uid);
       allow update: if isAdmin() ||
         (isSelf(uid) &&
           request.resource.data.role == resource.data.role &&
@@ -44,25 +104,72 @@ service cloud.firestore {
       allow delete: if isAdmin();
 
       match /videoStates/{videoId} {
-        allow read, write: if isSelf(uid) || isAdmin();
+        allow read: if isSelf(uid) || isAdmin();
+        // status/priority are closed enums and watchedPercentage is a
+        // 0-100 gauge the UI (progress bars, "in progress" filters) trusts
+        // outright — a client bug or tampered write pushing an
+        // out-of-range or made-up value would otherwise corrupt those
+        // views silently.
+        allow write: if (isSelf(uid) || isAdmin()) &&
+          optionalEnum(request.resource.data, 'status', ['not_started', 'in_progress', 'completed']) &&
+          optionalNumberInRange(request.resource.data, 'watchedPercentage', 0, 100) &&
+          optionalNumberInRange(request.resource.data, 'currentPositionSeconds', 0, 1000000000) &&
+          optionalBool(request.resource.data, 'isFavorite') &&
+          optionalBool(request.resource.data, 'isWatchLater') &&
+          optionalNullableEnum(request.resource.data, 'priority', ['high', 'medium', 'low']);
       }
+
+      // Size-guarded so a runaway autosave loop or a large paste can't
+      // create multi-megabyte documents that blow through the free-tier
+      // storage quota. 20,000 chars is well beyond anything a student
+      // would reasonably type as a note/summary.
       match /notes/{videoId} {
-        allow read, write: if isSelf(uid) || isAdmin();
+        allow read: if isSelf(uid) || isAdmin();
+        allow create, update: if (isSelf(uid) || isAdmin()) &&
+          request.resource.data.content is string &&
+          request.resource.data.content.size() <= 20000;
+        allow delete: if isSelf(uid) || isAdmin();
       }
       match /summaries/{videoId} {
-        allow read, write: if isSelf(uid) || isAdmin();
+        allow read: if isSelf(uid) || isAdmin();
+        allow create, update: if (isSelf(uid) || isAdmin()) &&
+          request.resource.data.content is string &&
+          request.resource.data.content.size() <= 20000;
+        allow delete: if isSelf(uid) || isAdmin();
       }
+
       match /bookmarks/{videoId}/items/{bookmarkId} {
-        allow read, write: if isSelf(uid) || isAdmin();
+        allow read: if isSelf(uid) || isAdmin();
+        // Bookmarks are create-once/delete (addBookmark/removeBookmark —
+        // no update path), so the shape can be required outright rather
+        // than optionally.
+        allow create: if (isSelf(uid) || isAdmin()) &&
+          request.resource.data.videoId is string &&
+          request.resource.data.timestampSeconds is number &&
+          request.resource.data.timestampSeconds >= 0 &&
+          request.resource.data.label is string &&
+          request.resource.data.label.size() <= 500;
+        allow delete: if isSelf(uid) || isAdmin();
       }
+
       match /favoritePlaylists/{playlistId} {
         allow read, write: if isSelf(uid) || isAdmin();
       }
+
       match /goals/{goalId} {
-        allow read, write: if isSelf(uid) || isAdmin();
+        allow read: if isSelf(uid) || isAdmin();
+        allow write: if (isSelf(uid) || isAdmin()) &&
+          optionalString(request.resource.data, 'title', 500) &&
+          optionalString(request.resource.data, 'notes', 5000) &&
+          optionalNullableEnum(request.resource.data, 'priority', ['high', 'medium', 'low']) &&
+          optionalBool(request.resource.data, 'completed');
       }
+
       match /watchProgress/{videoId} {
-        allow read, write: if isSelf(uid) || isAdmin();
+        allow read: if isSelf(uid) || isAdmin();
+        allow write: if (isSelf(uid) || isAdmin()) &&
+          optionalNumberInRange(request.resource.data, 'currentSeconds', 0, 1000000000) &&
+          optionalNumberInRange(request.resource.data, 'percentComplete', 0, 100);
       }
 
       // Personal playlists/videos the student creates themselves. Private
@@ -71,22 +178,48 @@ service cloud.firestore {
       // from the top-level /playlists collection (the shared library) to
       // avoid any confusion between the two content tiers.
       match /personalPlaylists/{playlistId} {
-        allow read, write: if isSelf(uid) || isAdmin();
+        allow read: if isSelf(uid) || isAdmin();
+        allow write: if (isSelf(uid) || isAdmin()) &&
+          optionalString(request.resource.data, 'title', 300) &&
+          optionalString(request.resource.data, 'description', 5000) &&
+          optionalEnum(request.resource.data, 'visibility', ['private', 'link', 'public']) &&
+          optionalBool(request.resource.data, 'isUnsorted') &&
+          optionalBool(request.resource.data, 'autoPlay') &&
+          optionalNumberInRange(request.resource.data, 'videoCount', 0, 1000000) &&
+          optionalNumberInRange(request.resource.data, 'totalDurationSeconds', 0, 1000000000);
+
         match /videos/{videoId} {
-          allow read, write: if isSelf(uid) || isAdmin();
+          allow read: if isSelf(uid) || isAdmin();
+          allow write: if (isSelf(uid) || isAdmin()) &&
+            optionalString(request.resource.data, 'title', 500) &&
+            optionalEnum(request.resource.data, 'status', ['not_started', 'in_progress', 'completed']) &&
+            optionalNumberInRange(request.resource.data, 'watchedPercentage', 0, 100) &&
+            optionalNumberInRange(request.resource.data, 'currentPositionSeconds', 0, 1000000000) &&
+            optionalBool(request.resource.data, 'isFavorite') &&
+            optionalBool(request.resource.data, 'isWatchLater') &&
+            optionalNullableEnum(request.resource.data, 'priority', ['high', 'medium', 'low']) &&
+            optionalNumberInRange(request.resource.data, 'order', 0, 1000000);
         }
       }
     }
 
     // ── Shared learning library ─────────────────────────────────────────
-    // Readable by any signed-in, active user. Writable only by admins.
+    // Readable by any signed-in, active user ("Suggested", formerly
+    // "Playlists" — see study-lamp-roadmap.md Phase 2c for the
+    // student-facing rename; this collection's path/permissions are
+    // unaffected by that rename). Writable only by admins.
     match /playlists/{playlistId} {
       allow read: if isSignedIn() && isActive();
-      allow write: if isAdmin();
+      allow write: if isAdmin() &&
+        optionalString(request.resource.data, 'title', 300) &&
+        optionalEnum(request.resource.data, 'visibility', ['shared', 'archived']) &&
+        optionalNumberInRange(request.resource.data, 'videoCount', 0, 1000000);
 
       match /videos/{videoId} {
         allow read: if isSignedIn() && isActive();
-        allow write: if isAdmin();
+        allow write: if isAdmin() &&
+          optionalString(request.resource.data, 'title', 500) &&
+          optionalNumberInRange(request.resource.data, 'order', 0, 1000000);
       }
       match /videoTags/{videoTagId} {
         allow read: if isSignedIn() && isActive();
@@ -95,29 +228,47 @@ service cloud.firestore {
     }
 
     match /shares/{shareToken} {
-      allow read: if isShareActive(resource.data) &&
-        (resource.data.visibility != 'private' || isSelf(resource.data.ownerUid) || isAdmin());
+      // Owners need to read their own inactive records so the share dialog
+      // can find and update an existing share after it was revoked/expired.
+      // Inactive records remain hidden from everyone else.
+      allow read: if isSelf(resource.data.ownerUid) || isAdmin() ||
+        (isShareActive(resource.data) &&
+          (resource.data.visibility != 'private' || (('recipientUid' in resource.data) && isSelf(resource.data.recipientUid))));
       allow create: if isSignedIn() &&
         request.resource.data.ownerUid == request.auth.uid &&
         request.resource.data.shareToken == shareToken &&
         request.resource.data.entityType in ['video', 'playlist'] &&
         request.resource.data.visibility in ['private', 'unlisted', 'public'] &&
-        request.resource.data.revokedAt == null;
-      allow update: if (isSelf(resource.data.ownerUid) || isAdmin()) &&
+        request.resource.data.revokedAt == null &&
+        optionalTimestamp(request.resource.data, 'expiresAt') &&
+        optionalString(request.resource.data, 'recipientEmail', 320) &&
+        optionalString(request.resource.data, 'recipientUid', 200) &&
+        optionalNullableEnum(request.resource.data, 'approvalStatus', ['pending', 'accepted', 'rejected']);
+      allow update: if ((isSelf(resource.data.ownerUid) || isAdmin()) &&
         request.resource.data.ownerUid == resource.data.ownerUid &&
         request.resource.data.shareToken == shareToken &&
-        request.resource.data.entityType == resource.data.entityType;
+        request.resource.data.entityType == resource.data.entityType &&
+        request.resource.data.visibility in ['private', 'unlisted', 'public'] &&
+        optionalTimestamp(request.resource.data, 'expiresAt')) ||
+        (('recipientUid' in resource.data) && isSelf(resource.data.recipientUid) &&
+          request.resource.data.ownerUid == resource.data.ownerUid &&
+          request.resource.data.shareToken == shareToken &&
+          request.resource.data.approvalStatus in ['accepted', 'rejected']);
       allow delete: if isSelf(resource.data.ownerUid) || isAdmin();
     }
 
     match /categories/{categoryId} {
       allow read: if isSignedIn() && isActive();
-      allow write: if isAdmin();
+      allow write: if isAdmin() &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0;
     }
 
     match /tags/{tagId} {
       allow read: if isSignedIn() && isActive();
-      allow write: if isAdmin();
+      allow write: if isAdmin() &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0;
     }
 
     match /videoTags/{videoTagId} {

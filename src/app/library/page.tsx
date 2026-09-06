@@ -12,10 +12,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ShareDialog } from "@/components/share/ShareDialog";
 import { useVideoLibrary } from "@/hooks/useVideoLibrary";
 import { addExistingVideoToPersonalPlaylist, bulkAddVideosToPersonalPlaylist, listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
-import { createOrUpdateVideoShare } from "@/lib/firestore/shares";
-import { getShareUrl } from "@/lib/sharing";
+import { createDirectedShare, createOrUpdateVideoShare, findShareForEntity } from "@/lib/firestore/shares";
+import { getShareUrl, shareExpiryOptionFromDate } from "@/lib/sharing";
 import { applyFilters, applySort } from "@/lib/filterSort";
-import type { HomeFilters, PersonalPlaylist, PriorityLevel, ShareVisibility, SortOption, VideoPlatform, VideoWithState } from "@/types";
+import type { HomeFilters, PersonalPlaylist, PriorityLevel, ShareExpiryOption, ShareVisibility, SortOption, VideoPlatform, VideoWithState } from "@/types";
 import { VIDEO_PLATFORMS } from "@/types";
 import { bulkSetPriority, bulkSetWatchedStatus, bulkToggleFavorite, bulkToggleWatchLater, setPriority, setWatchedStatus, toggleFavorite, toggleWatchLater } from "@/lib/firestore/userVideoState";
 import { toast } from "sonner";
@@ -43,6 +43,7 @@ function LibraryContent() {
   const [shareDialogOpen, setShareDialogOpen] = React.useState(false);
   const [shareVisibility, setShareVisibility] = React.useState<ShareVisibility>("private");
   const [shareUrl, setShareUrl] = React.useState("");
+  const [shareExpiresAt, setShareExpiresAt] = React.useState<unknown>(null);
   const [playlistActionLoading, setPlaylistActionLoading] = React.useState(false);
   const [shareBusy, setShareBusy] = React.useState(false);
 
@@ -217,6 +218,7 @@ function LibraryContent() {
     setSelectedVideo(video);
     setShareBusy(true);
     try {
+      const existing = await findShareForEntity(user.uid, "video", video.id);
       const record = await createOrUpdateVideoShare(user.uid, {
         id: video.id,
         title: video.title,
@@ -226,9 +228,10 @@ function LibraryContent() {
         platform: video.platform,
         creatorName: video.creatorName ?? null,
         durationSeconds: video.durationSeconds || null,
-      }, "private");
+      }, existing?.visibility || "private");
       setShareVisibility(record.visibility || "private");
       setShareUrl(getShareUrl(record.shareToken, "video"));
+      setShareExpiresAt(record.expiresAt ?? null);
       setShareDialogOpen(true);
     } catch (error: any) {
       toast.error(error?.message || "Unable to prepare this share.");
@@ -251,7 +254,40 @@ function LibraryContent() {
     }, next);
     setShareVisibility(record.visibility || "private");
     setShareUrl(getShareUrl(record.shareToken, "video"));
+    setShareExpiresAt(record.expiresAt ?? null);
     toast.success(`Sharing updated to ${next === "unlisted" ? "Anyone with link" : next === "public" ? "Public" : "Private"}.`);
+  };
+
+  const handleShareExpiryChange = async (next: ShareExpiryOption) => {
+    if (!user || !selectedVideo) return;
+    const record = await createOrUpdateVideoShare(user.uid, {
+      id: selectedVideo.id,
+      title: selectedVideo.title,
+      videoUrl: selectedVideo.videoUrl,
+      thumbnailUrl: selectedVideo.thumbnailUrl,
+      description: selectedVideo.description || null,
+      platform: selectedVideo.platform,
+      creatorName: selectedVideo.creatorName ?? null,
+      durationSeconds: selectedVideo.durationSeconds || null,
+    }, shareVisibility, false, next);
+    setShareExpiresAt(record.expiresAt ?? null);
+    toast.success(next === "never" ? "Link will no longer expire." : `Link now expires ${next === "1h" ? "in 1 hour" : next === "24h" ? "in 24 hours" : next === "7d" ? "in 7 days" : "in 30 days"}.`);
+  };
+
+  const handleShareVideoToUser = async (email: string) => {
+    if (!user || !selectedVideo) return;
+    const base = await createOrUpdateVideoShare(user.uid, {
+      id: selectedVideo.id, title: selectedVideo.title, videoUrl: selectedVideo.videoUrl,
+      thumbnailUrl: selectedVideo.thumbnailUrl, description: selectedVideo.description || null,
+      platform: selectedVideo.platform, creatorName: selectedVideo.creatorName ?? null,
+      durationSeconds: selectedVideo.durationSeconds || null,
+    }, "private", false, shareExpiryOptionFromDate(shareExpiresAt));
+    const token = await user.getIdToken();
+    const response = await fetch(`/api/find-user?email=${encodeURIComponent(email)}`, { headers: { authorization: `Bearer ${token}` } });
+    const match = await response.json() as { found?: boolean; uid?: string; error?: string };
+    if (!response.ok) throw new Error(match.error || "Unable to check the recipient email.");
+    await createDirectedShare(user.uid, base, email, match.found ? match.uid || null : null, user.displayName || user.email);
+    toast.success(match.found ? "Shared successfully. The user has an approval request." : "Share created successfully. The email is not a registered user yet.");
   };
 
   const handleCopyShareLink = async () => {
@@ -274,6 +310,7 @@ function LibraryContent() {
     }, "private", true);
     setShareVisibility("private");
     setShareUrl(existing.shareToken ? getShareUrl(existing.shareToken, "video") : "");
+    setShareExpiresAt(existing.expiresAt ?? null);
     setShareDialogOpen(false);
     toast.success("Sharing revoked");
   };
@@ -404,13 +441,18 @@ function LibraryContent() {
           if (!open) {
             setSelectedVideo(null);
             setShareUrl("");
+            setShareExpiresAt(null);
           }
         }}
         shareUrl={shareUrl}
         visibility={shareVisibility}
         onVisibilityChange={handleShareVisibilityChange}
+        expiresAt={shareExpiresAt}
+        expiryOption={shareExpiryOptionFromDate(shareExpiresAt)}
+        onExpiryChange={handleShareExpiryChange}
         onCopy={handleCopyShareLink}
         onRevoke={handleRevokeShare}
+        onShareToUser={handleShareVideoToUser}
         loading={shareBusy}
       />
 

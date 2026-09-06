@@ -41,6 +41,14 @@ export const VIDEO_PLATFORMS: VideoPlatform[] = [
 
 export const SHARE_VISIBILITIES: ShareVisibility[] = ["private", "unlisted", "public"];
 
+/** Choice offered in ShareDialog's "Expires" control. "never" clears any
+ *  previously-set expiry; "7d"/"30d" set expiresAt to now + N days. This is
+ *  an action a person picks, not a stored value — the actual persisted
+ *  state lives in ShareRecord.expiresAt (a Timestamp or null). */
+export type ShareExpiryOption = "never" | "1h" | "24h" | "7d" | "30d";
+
+export const SHARE_EXPIRY_OPTIONS: ShareExpiryOption[] = ["never", "1h", "24h", "7d", "30d"];
+
 export interface VideoTag {
   id: string;
   videoId: string;
@@ -49,6 +57,7 @@ export interface VideoTag {
 }
 
 export type ShareEntityType = "video" | "playlist";
+export type ShareApprovalStatus = "pending" | "accepted" | "rejected";
 
 export type FirestoreTimeValue = Timestamp | FieldValue | null;
 
@@ -74,8 +83,16 @@ export interface ShareRecord {
     platform?: VideoPlatform;
   }>;
   revokedAt: FirestoreTimeValue;
+  /** Optional automatic expiry, set from ShareDialog's "Expires" control
+   *  (never / 7 days / 30 days). null/undefined means "never expires" —
+   *  see firestore.rules' isShareActive() for how reads enforce this. */
+  expiresAt?: FirestoreTimeValue;
   createdAt: FirestoreTimeValue;
   updatedAt: FirestoreTimeValue;
+  recipientEmail?: string | null;
+  recipientUid?: string | null;
+  approvalStatus?: ShareApprovalStatus | null;
+  sharedByName?: string | null;
 }
 
 export interface PlaylistShare {
@@ -83,6 +100,8 @@ export interface PlaylistShare {
   playlistId: string;
   visibility: ShareVisibility;
   shareToken?: string | null;
+  /** Optional automatic expiry, mirrors ShareRecord.expiresAt. */
+  expiresAt?: Timestamp | null;
   createdBy: string;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;

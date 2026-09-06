@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { canManageShare, canReadSharedItem, isShareRevoked, resolveShareVisibilityState, type ShareAccessContext } from "./sharing";
+import {
+  canManageShare, canReadSharedItem, computeExpiresAt, isShareExpired, isShareRevoked,
+  resolveShareVisibilityState, shareExpiryOptionFromDate, type ShareAccessContext,
+} from "./sharing";
 
 describe("share access rules", () => {
   const base: ShareAccessContext = {
@@ -54,5 +57,51 @@ describe("share access rules", () => {
     const revoked = resolveShareVisibilityState(null, "private", true);
     assert.equal(revoked.visibility, "private");
     assert.equal(revoked.revokedAt instanceof Date, true);
+  });
+});
+
+describe("share expiry", () => {
+  const base: ShareAccessContext = {
+    ownerUid: "owner-1",
+    visibility: "unlisted",
+    revokedAt: null,
+    token: "abc123def456ghi789jkl012mno345",
+  };
+
+  it("treats a missing/null expiresAt as never-expiring", () => {
+    assert.equal(isShareExpired(base), false);
+    assert.equal(isShareExpired({ ...base, expiresAt: null }), false);
+    assert.equal(canReadSharedItem(base, "viewer-1"), true);
+  });
+
+  it("blocks reads once expiresAt is in the past", () => {
+    const expired = { ...base, expiresAt: new Date(Date.now() - 60_000) };
+    assert.equal(isShareExpired(expired), true);
+    assert.equal(canReadSharedItem(expired, "viewer-1"), false);
+  });
+
+  it("allows reads while expiresAt is still in the future", () => {
+    const active = { ...base, expiresAt: new Date(Date.now() + 60_000) };
+    assert.equal(isShareExpired(active), false);
+    assert.equal(canReadSharedItem(active, "viewer-1"), true);
+  });
+
+  it("computeExpiresAt('never') clears expiry", () => {
+    assert.equal(computeExpiresAt("never"), null);
+  });
+
+  it("computeExpiresAt('7d'/'30d') adds the right number of days", () => {
+    const from = new Date("2024-01-01T00:00:00Z");
+    const in7 = computeExpiresAt("7d", from);
+    const in30 = computeExpiresAt("30d", from);
+    assert.equal(in7?.toISOString(), "2024-01-08T00:00:00.000Z");
+    assert.equal(in30?.toISOString(), "2024-01-31T00:00:00.000Z");
+  });
+
+  it("shareExpiryOptionFromDate buckets a stored expiry back to an option", () => {
+    assert.equal(shareExpiryOptionFromDate(null), "never");
+    assert.equal(shareExpiryOptionFromDate(new Date(Date.now() - 1000)), "never");
+    assert.equal(shareExpiryOptionFromDate(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)), "7d");
+    assert.equal(shareExpiryOptionFromDate(new Date(Date.now() + 20 * 24 * 60 * 60 * 1000)), "30d");
   });
 });

@@ -31,8 +31,8 @@ import {
 } from "@/lib/firestore/personalPlaylists";
 import { PlaylistVideoRow } from "@/components/video/PlaylistVideoRow";
 import { db } from "@/lib/firebase";
-import { createOrUpdatePlaylistShare } from "@/lib/firestore/shares";
-import { getShareUrl } from "@/lib/sharing";
+import { createDirectedShare, createOrUpdatePlaylistShare, findShareForEntity } from "@/lib/firestore/shares";
+import { getShareUrl, shareExpiryOptionFromDate } from "@/lib/sharing";
 import { fetchVideoMetadata, type VideoMetadata } from "@/lib/video-metadata";
 import {
   detectVideoProvider,
@@ -43,7 +43,7 @@ import {
 import { formatDuration, formatWatchTime } from "@/lib/utils";
 import { compareLessonPartPage } from "@/lib/lessonPartPageSort";
 import { compareByKeywords, parseKeywordInput } from "@/lib/keywordSort";
-import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibility, PersonalVideo, PriorityLevel, ShareVisibility } from "@/types";
+import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibility, PersonalVideo, PriorityLevel, ShareExpiryOption, ShareVisibility } from "@/types";
 import { ArrowLeft, CheckCircle2, Clock, Download, Lock, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -105,6 +105,7 @@ function PersonalPlaylistEditorContent() {
   const [shareOpen, setShareOpen] = React.useState(false);
   const [shareVisibility, setShareVisibility] = React.useState<ShareVisibility>("private");
   const [shareUrl, setShareUrl] = React.useState("");
+  const [shareExpiresAt, setShareExpiresAt] = React.useState<unknown>(null);
   const [shareBusy, setShareBusy] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [filterMode, setFilterMode] = React.useState<"all" | "watched" | "unwatched" | "favorites" | "priority">("all");
@@ -642,6 +643,7 @@ function PersonalPlaylistEditorContent() {
     if (!user || !playlist) return;
     setShareBusy(true);
     try {
+      const existing = await findShareForEntity(user.uid, "playlist", playlist.id);
       const record = await createOrUpdatePlaylistShare(user.uid, playlist, videos.map((v) => ({
         id: v.id,
         title: v.title,
@@ -649,9 +651,10 @@ function PersonalPlaylistEditorContent() {
         thumbnailUrl: v.thumbnailUrl,
         durationSeconds: v.durationSeconds,
         platform: v.platform,
-      })), "private");
+      })), existing?.visibility || "private");
       setShareVisibility(record.visibility || "private");
       setShareUrl(getShareUrl(record.shareToken, "playlist"));
+      setShareExpiresAt(record.expiresAt ?? null);
       setShareOpen(true);
     } catch (error: any) {
       toast.error(error?.message || "Unable to prepare this playlist share.");
@@ -672,13 +675,42 @@ function PersonalPlaylistEditorContent() {
     })), next);
     setShareVisibility(record.visibility || "private");
     setShareUrl(getShareUrl(record.shareToken, "playlist"));
+    setShareExpiresAt(record.expiresAt ?? null);
     toast.success(`Playlist sharing updated to ${next === "unlisted" ? "Anyone with link" : next === "public" ? "Public" : "Private"}.`);
+  };
+
+  const handleShareExpiryChange = async (next: ShareExpiryOption) => {
+    if (!user || !playlist) return;
+    const record = await createOrUpdatePlaylistShare(user.uid, playlist, videos.map((v) => ({
+      id: v.id,
+      title: v.title,
+      videoUrl: v.videoUrl,
+      thumbnailUrl: v.thumbnailUrl,
+      durationSeconds: v.durationSeconds,
+      platform: v.platform,
+    })), shareVisibility, false, next);
+    setShareExpiresAt(record.expiresAt ?? null);
+    toast.success(next === "never" ? "Link will no longer expire." : `Link now expires ${next === "1h" ? "in 1 hour" : next === "24h" ? "in 24 hours" : next === "7d" ? "in 7 days" : "in 30 days"}.`);
   };
 
   const handleCopyShareLink = async () => {
     if (!shareUrl) return;
     await navigator.clipboard.writeText(shareUrl);
     toast.success("Share link copied");
+  };
+
+  const handleSharePlaylistToUser = async (email: string) => {
+    if (!user || !playlist) return;
+    const base = await createOrUpdatePlaylistShare(user.uid, playlist, videos.map((video) => ({
+      id: video.id, title: video.title, videoUrl: video.videoUrl, thumbnailUrl: video.thumbnailUrl,
+      durationSeconds: video.durationSeconds, platform: video.platform,
+    })), "private", false, shareExpiryOptionFromDate(shareExpiresAt));
+    const token = await user.getIdToken();
+    const response = await fetch(`/api/find-user?email=${encodeURIComponent(email)}`, { headers: { authorization: `Bearer ${token}` } });
+    const match = await response.json() as { found?: boolean; uid?: string; error?: string };
+    if (!response.ok) throw new Error(match.error || "Unable to check the recipient email.");
+    await createDirectedShare(user.uid, base, email, match.found ? match.uid || null : null, user.displayName || user.email);
+    toast.success(match.found ? "Shared successfully. The user has an approval request." : "Share created successfully. The email is not a registered user yet.");
   };
 
   const handleRevokeShare = async () => {
@@ -693,6 +725,7 @@ function PersonalPlaylistEditorContent() {
     })), "private", true);
     setShareVisibility("private");
     setShareUrl(record.shareToken ? getShareUrl(record.shareToken, "playlist") : "");
+    setShareExpiresAt(record.expiresAt ?? null);
     setShareOpen(false);
     toast.success("Playlist sharing revoked");
   };
@@ -1132,13 +1165,18 @@ function PersonalPlaylistEditorContent() {
           setShareOpen(open);
           if (!open) {
             setShareUrl("");
+            setShareExpiresAt(null);
           }
         }}
         shareUrl={shareUrl}
         visibility={shareVisibility}
         onVisibilityChange={handleShareVisibilityChange}
+        expiresAt={shareExpiresAt}
+        expiryOption={shareExpiryOptionFromDate(shareExpiresAt)}
+        onExpiryChange={handleShareExpiryChange}
         onCopy={handleCopyShareLink}
         onRevoke={handleRevokeShare}
+        onShareToUser={handleSharePlaylistToUser}
         loading={shareBusy}
       />
     </AppShell>

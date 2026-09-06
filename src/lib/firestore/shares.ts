@@ -3,8 +3,8 @@ import {
   setDoc, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { generateShareToken, isShareRevoked, resolveShareVisibilityState } from "@/lib/sharing";
-import type { ShareRecord, ShareVisibility, ShareEntityType, Video, PersonalPlaylist, Playlist, VideoPlatform } from "@/types";
+import { computeExpiresAt, generateShareToken, isShareExpired, isShareRevoked, resolveShareVisibilityState } from "@/lib/sharing";
+import type { ShareRecord, ShareVisibility, ShareEntityType, ShareExpiryOption, Video, PersonalPlaylist, Playlist, VideoPlatform, ShareApprovalStatus } from "@/types";
 
 const sharesCol = () => collection(db, "shares");
 
@@ -41,10 +41,64 @@ export async function findShareForEntity(ownerUid: string, entityType: ShareEnti
   return { id: first.id, ...first.data() } as ShareRecord;
 }
 
-export async function createOrUpdateVideoShare(ownerUid: string, video: VideoShareInput, visibility: ShareVisibility = "private", revokeNow = false) {
+export async function listSharesByOwner(ownerUid: string): Promise<ShareRecord[]> {
+  const snap = await getDocs(query(sharesCol(), where("ownerUid", "==", ownerUid)));
+  return snap.docs.map((item) => ({ id: item.id, ...item.data() }) as ShareRecord);
+}
+
+export async function listSharesForRecipient(recipientUid: string): Promise<ShareRecord[]> {
+  const snap = await getDocs(query(sharesCol(), where("recipientUid", "==", recipientUid)));
+  return snap.docs.map((item) => ({ id: item.id, ...item.data() }) as ShareRecord);
+}
+
+export async function setShareApproval(token: string, recipientUid: string, approvalStatus: ShareApprovalStatus) {
+  await updateDoc(doc(db, "shares", token), {
+    approvalStatus,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function createDirectedShare(
+  ownerUid: string,
+  share: ShareRecord,
+  recipientEmail: string,
+  recipientUid: string | null,
+  sharedByName?: string | null,
+): Promise<ShareRecord> {
+  const token = generateShareToken();
+  const record: ShareRecord = {
+    ...share,
+    id: token,
+    shareToken: token,
+    visibility: "private",
+    recipientEmail: recipientEmail.trim().toLowerCase(),
+    recipientUid,
+    approvalStatus: recipientUid ? "pending" : null,
+    sharedByName: sharedByName || null,
+    ownerUid,
+    revokedAt: null,
+    createdAt: serverTimestamp() as any,
+    updatedAt: serverTimestamp() as any,
+  };
+  await setDoc(doc(db, "shares", token), record);
+  return record;
+}
+
+export async function createOrUpdateVideoShare(
+  ownerUid: string,
+  video: VideoShareInput,
+  visibility: ShareVisibility = "private",
+  revokeNow = false,
+  expiryOption?: ShareExpiryOption,
+) {
   const existing = await findShareForEntity(ownerUid, "video", video.id);
   const token = existing?.shareToken || generateShareToken();
   const nextState = resolveShareVisibilityState(existing?.revokedAt, visibility, revokeNow);
+  // Explicitly recomputed on every write (rather than omitted when
+  // unchanged) so the field is always present in Firestore — a Firestore
+  // rule reading a genuinely-missing map key throws, so leaving it out of
+  // brand-new documents would be riskier than just always setting it.
+  const expiresAt = expiryOption !== undefined ? computeExpiresAt(expiryOption) : (existing?.expiresAt ?? null);
 
   const record: ShareRecord = {
     id: token,
@@ -60,6 +114,7 @@ export async function createOrUpdateVideoShare(ownerUid: string, video: VideoSha
     platform: video.platform || null,
     creatorName: video.creatorName || null,
     revokedAt: revokeNow ? (serverTimestamp() as any) : null,
+    expiresAt: expiresAt as any,
     createdAt: existing?.createdAt || serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -68,10 +123,18 @@ export async function createOrUpdateVideoShare(ownerUid: string, video: VideoSha
   return record;
 }
 
-export async function createOrUpdatePlaylistShare(ownerUid: string, playlist: PlaylistShareInput, videos: Array<{ id: string; title: string; videoUrl: string; thumbnailUrl?: string | null; durationSeconds?: number | null; platform?: any }>, visibility: ShareVisibility = "private", revokeNow = false) {
+export async function createOrUpdatePlaylistShare(
+  ownerUid: string,
+  playlist: PlaylistShareInput,
+  videos: Array<{ id: string; title: string; videoUrl: string; thumbnailUrl?: string | null; durationSeconds?: number | null; platform?: any }>,
+  visibility: ShareVisibility = "private",
+  revokeNow = false,
+  expiryOption?: ShareExpiryOption,
+) {
   const existing = await findShareForEntity(ownerUid, "playlist", playlist.id);
   const token = existing?.shareToken || generateShareToken();
   const nextState = resolveShareVisibilityState(existing?.revokedAt, visibility, revokeNow);
+  const expiresAt = expiryOption !== undefined ? computeExpiresAt(expiryOption) : (existing?.expiresAt ?? null);
 
   const record: ShareRecord = {
     id: token,
@@ -92,6 +155,7 @@ export async function createOrUpdatePlaylistShare(ownerUid: string, playlist: Pl
       platform: video.platform,
     })),
     revokedAt: revokeNow ? (serverTimestamp() as any) : null,
+    expiresAt: expiresAt as any,
     createdAt: existing?.createdAt || serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -130,6 +194,7 @@ export async function canReadShareToken(token: string, viewerUid?: string | null
   const share = await getShareByToken(token);
   if (!share) return false;
   if (isShareRevoked(share)) return false;
+  if (isShareExpired(share)) return false;
   if (share.visibility === "private") return !!viewerUid && viewerUid === share.ownerUid;
   return true;
 }
