@@ -162,8 +162,8 @@ function DashboardContent() {
 
         <section className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="flex items-center gap-2 font-display text-lg font-semibold"><BookOpen className="h-4 w-4 text-accent" /> My Playlists</h2>
-            <Link href="/my-playlists" className="text-sm text-muted-foreground hover:text-foreground">View all</Link>
+            <h2 className="flex items-center gap-2 font-display text-lg font-semibold"><BookOpen className="h-4 w-4 text-accent" /> Playlists</h2>
+            <Link href="/playlists" className="text-sm text-muted-foreground hover:text-foreground">View all</Link>
           </div>
           {loading ? (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -176,7 +176,7 @@ function DashboardContent() {
           ) : (
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
               {playlists.slice(0, 4).map((playlist) => (
-                <Link key={playlist.id} href={`/my-playlists/${playlist.id}`}>
+                <Link key={playlist.id} href={`/playlists/${playlist.id}`}>
                   <Card className="h-full transition-shadow hover:shadow-md">
                     <CardContent className="space-y-3 p-4">
                       <div className="flex items-center gap-2 text-muted-foreground">

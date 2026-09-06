@@ -172,7 +172,7 @@ service cloud.firestore {
           optionalNumberInRange(request.resource.data, 'percentComplete', 0, 100);
       }
 
-      // Personal playlists/videos the student creates themselves. Private
+      // Personal Playlists/videos the student creates themselves. Private
       // by path: only the owner and admins can ever reach this subtree —
       // no other student's rules path grants access to it. Named distinctly
       // from the top-level /playlists collection (the shared library) to
@@ -186,7 +186,8 @@ service cloud.firestore {
           optionalBool(request.resource.data, 'isUnsorted') &&
           optionalBool(request.resource.data, 'autoPlay') &&
           optionalNumberInRange(request.resource.data, 'videoCount', 0, 1000000) &&
-          optionalNumberInRange(request.resource.data, 'totalDurationSeconds', 0, 1000000000);
+          optionalNumberInRange(request.resource.data, 'totalDurationSeconds', 0, 1000000000) &&
+          optionalString(request.resource.data, 'categoryId', 200);
 
         match /videos/{videoId} {
           allow read: if isSelf(uid) || isAdmin();
@@ -198,16 +199,16 @@ service cloud.firestore {
             optionalBool(request.resource.data, 'isFavorite') &&
             optionalBool(request.resource.data, 'isWatchLater') &&
             optionalNullableEnum(request.resource.data, 'priority', ['high', 'medium', 'low']) &&
-            optionalNumberInRange(request.resource.data, 'order', 0, 1000000);
+            optionalNumberInRange(request.resource.data, 'order', 0, 1000000) &&
+            optionalString(request.resource.data, 'categoryId', 200);
         }
       }
     }
 
     // ── Shared learning library ─────────────────────────────────────────
-    // Readable by any signed-in, active user ("Suggested", formerly
-    // "Playlists" — see study-lamp-roadmap.md Phase 2c for the
-    // student-facing rename; this collection's path/permissions are
-    // unaffected by that rename). Writable only by admins.
+    // Admin-curated Suggested content. Readable by any signed-in, active
+    // user; writable only by admins. The technical collection path remains
+    // /playlists even though the student-facing route is /suggested.
     match /playlists/{playlistId} {
       allow read: if isSignedIn() && isActive();
       allow write: if isAdmin() &&
@@ -266,9 +267,11 @@ service cloud.firestore {
 
     match /tags/{tagId} {
       allow read: if isSignedIn() && isActive();
-      allow write: if isAdmin() &&
+      allow create: if isSignedIn() && isActive() &&
         request.resource.data.name is string &&
-        request.resource.data.name.size() > 0;
+        request.resource.data.name.size() > 0 &&
+        optionalString(request.resource.data, 'nameLower', 200);
+      allow update, delete: if isAdmin();
     }
 
     match /videoTags/{videoTagId} {

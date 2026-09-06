@@ -155,6 +155,7 @@ export interface Category {
 export interface Tag {
   id: string;
   name: string;
+  nameLower?: string;
   createdBy: string;
 }
 
@@ -281,6 +282,8 @@ export interface PersonalPlaylist {
   ownerId: string;
   title: string;
   description?: string;
+  categoryId?: string | null;
+  tagIds?: string[];
   isUnsorted?: boolean;
   visibility: PersonalPlaylistVisibility;
   sortMode?: PersonalPlaylistSortMode;
@@ -310,6 +313,8 @@ export interface PersonalVideo {
   thumbnailUrl: string;
   durationSeconds?: number;
   description?: string | null;
+  categoryId?: string | null;
+  tagIds?: string[];
   creator?: string | null;
   publishedAt?: string | null;
   platform?: VideoPlatform;
@@ -378,7 +383,9 @@ export interface VideoWithState extends Video {
    *  (Watch Later, Favorites, Priority, Continue Watching, Dashboard) merge
    *  both tiers, and this tag tells write-handlers which Firestore path to
    *  update. Undefined is treated as "shared" for backward compatibility. */
-  source?: "shared" | "personal";
+  source?: "suggested" | "shared" | "personal";
+  shareToken?: string;
+  shareEntityType?: ShareEntityType;
 }
 
 export interface HomeFilters {

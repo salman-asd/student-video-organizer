@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { createPersonalPlaylist } from "@/lib/firestore/personalPlaylists";
 import type { PersonalPlaylistVisibility } from "@/types";
 import { toast } from "sonner";
+import { TagCategoryPicker } from "@/components/shared/TagCategoryPicker";
 
 const VISIBILITY_LABELS: Record<PersonalPlaylistVisibility, string> = {
   private: "Private",
@@ -26,12 +27,16 @@ export function QuickAddPlaylistDialog({ ownerId, open, onOpenChange, onCreated 
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [visibility, setVisibility] = React.useState<PersonalPlaylistVisibility>("private");
+  const [categoryId, setCategoryId] = React.useState<string | null>(null);
+  const [tagIds, setTagIds] = React.useState<string[]>([]);
   const [saving, setSaving] = React.useState(false);
 
   function reset() {
     setTitle("");
     setDescription("");
     setVisibility("private");
+    setCategoryId(null);
+    setTagIds([]);
     setSaving(false);
   }
 
@@ -39,7 +44,7 @@ export function QuickAddPlaylistDialog({ ownerId, open, onOpenChange, onCreated 
     if (!title.trim()) return;
     setSaving(true);
     try {
-      await createPersonalPlaylist(ownerId, title.trim(), description.trim(), visibility);
+      await createPersonalPlaylist(ownerId, title.trim(), description.trim(), visibility, categoryId, tagIds);
       toast.success("Playlist created");
       reset();
       onOpenChange(false);
@@ -60,6 +65,7 @@ export function QuickAddPlaylistDialog({ ownerId, open, onOpenChange, onCreated 
             <Label>Title</Label>
             <Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. My Interview Prep" />
           </div>
+          <TagCategoryPicker userId={ownerId} categoryId={categoryId} tagIds={tagIds} onCategoryChange={setCategoryId} onTagsChange={setTagIds} />
           <div className="space-y-1.5">
             <Label>Description (optional)</Label>
             <Textarea value={description} onChange={(event) => setDescription(event.target.value)} />

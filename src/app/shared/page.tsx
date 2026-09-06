@@ -150,7 +150,7 @@ function ShareCard({ shares, onDecide, viewerUid, onChanged }: { shares: ShareRe
           <p className="flex items-center gap-1"><UserRound className="h-3.5 w-3.5" /> {share.sharedByName || (share.recipientEmail ? `To ${share.recipientEmail}` : "Shared link")}</p>
         </div>
         {ownedShares.length > 0 && <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-3">
-          <Button size="sm" asChild><Link href={share.entityType === "playlist" ? `/my-playlists/${share.entityId}` : "/library"}><MapPin /> Go to {share.entityType === "playlist" ? "playlist" : "video"}</Link></Button>
+          <Button size="sm" asChild><Link href={share.entityType === "playlist" ? `/playlists/${share.entityId}` : "/library"}><MapPin /> Go to {share.entityType === "playlist" ? "playlist" : "video"}</Link></Button>
           <Button size="sm" variant="outline" onClick={() => setManageOpen(true)}><Settings2 /> Manage shares</Button>
         </div>}
         {receivedShares.length > 0 && <div className="space-y-2 border-t border-border pt-2">

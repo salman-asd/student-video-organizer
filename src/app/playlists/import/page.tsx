@@ -182,7 +182,7 @@ function ImportContent() {
     <AppShell>
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
-          <Link href="/my-playlists" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <Link href="/playlists" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-4 w-4" /> Back to My Playlists
           </Link>
           <h1 className="mt-2 flex items-center gap-2 font-display text-2xl font-semibold">
@@ -229,7 +229,7 @@ function ImportContent() {
                 Imported <strong>{result.imported}</strong> video{result.imported === 1 ? "" : "s"}
                 {result.duplicates > 0 && <> — {result.duplicates} already existed and {result.duplicates === 1 ? "was" : "were"} skipped</>}.
                 {" "}
-                <Link href={targetPlaylistId ? `/my-playlists/${targetPlaylistId}` : "/my-playlists"} className="font-medium text-accent underline">
+                <Link href={targetPlaylistId ? `/playlists/${targetPlaylistId}` : "/playlists"} className="font-medium text-accent underline">
                   View playlist →
                 </Link>
               </p>

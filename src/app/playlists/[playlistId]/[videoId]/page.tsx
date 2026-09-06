@@ -165,7 +165,7 @@ function PersonalVideoContent() {
 
     if (autoPlay && next) {
       toast.success(`Finished! Autoplaying "${next.title}"…`);
-      router.push(`/my-playlists/${playlistId}/${next.id}${suffix}`);
+      router.push(`/playlists/${playlistId}/${next.id}${suffix}`);
     } else {
       toast.success("Nice work — video completed!");
     }
@@ -270,8 +270,8 @@ function PersonalVideoContent() {
                 isCompleted={video.status === "completed"}
                 hasPrevious={!!prev}
                 hasNext={!!next}
-                onPrevious={() => prev && router.push(`/my-playlists/${playlistId}/${prev.id}${suffix}`)}
-                onNext={() => next && router.push(`/my-playlists/${playlistId}/${next.id}${suffix}`)}
+                onPrevious={() => prev && router.push(`/playlists/${playlistId}/${prev.id}${suffix}`)}
+                onNext={() => next && router.push(`/playlists/${playlistId}/${next.id}${suffix}`)}
                 onToggleFavorite={handleToggleFavorite}
                 onToggleWatchLater={handleToggleWatchLater}
                 onSetPriority={handleSetPriority}

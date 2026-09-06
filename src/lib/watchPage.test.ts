@@ -5,11 +5,11 @@ import { getBackToPlaylistHref, shouldUsePlaylistSidebar } from "./watchPage";
 
 describe("getBackToPlaylistHref", () => {
   it("routes shared videos back to the library playlist page", () => {
-    assert.equal(getBackToPlaylistHref("playlist-123", null), "/playlists/playlist-123");
+    assert.equal(getBackToPlaylistHref("playlist-123", null), "/suggested/playlist-123");
   });
 
   it("routes personal videos back to the owner's playlist editor", () => {
-    assert.equal(getBackToPlaylistHref("playlist-456", "owner-1"), "/my-playlists/playlist-456?owner=owner-1");
+    assert.equal(getBackToPlaylistHref("playlist-456", "owner-1"), "/playlists/playlist-456?owner=owner-1");
   });
 });
 

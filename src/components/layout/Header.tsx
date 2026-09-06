@@ -100,7 +100,7 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
           <Tooltip>
             <TooltipTrigger asChild>
               <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-2.5" aria-label="Import playlist">
-                <a href="/my-playlists/import">
+                <a href="/playlists/import">
                   <Download className="h-4 w-4 shrink-0" />
                   <span className="hidden sm:inline">Import playlist</span>
                 </a>

@@ -1,497 +1,136 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { VideoGrid } from "@/components/video/VideoGrid";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ShareDialog } from "@/components/share/ShareDialog";
-import { useVideoLibrary } from "@/hooks/useVideoLibrary";
-import { addExistingVideoToPersonalPlaylist, bulkAddVideosToPersonalPlaylist, listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
-import { createDirectedShare, createOrUpdateVideoShare, findShareForEntity } from "@/lib/firestore/shares";
-import { getShareUrl, shareExpiryOptionFromDate } from "@/lib/sharing";
-import { applyFilters, applySort } from "@/lib/filterSort";
-import type { HomeFilters, PersonalPlaylist, PriorityLevel, ShareExpiryOption, ShareVisibility, SortOption, VideoPlatform, VideoWithState } from "@/types";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { listAllPersonalVideos } from "@/lib/firestore/personalPlaylists";
+import { listPlaylists, listVideos } from "@/lib/firestore/playlists";
+import { listSharesForRecipient } from "@/lib/firestore/shares";
+import { getAllUserVideoStates } from "@/lib/firestore/userVideoState";
+import { personalVideoToVideoWithState } from "@/lib/personalVideoAdapter";
+import { applySort } from "@/lib/filterSort";
+import type { ShareRecord, SortOption, VideoPlatform, VideoWithState } from "@/types";
 import { VIDEO_PLATFORMS } from "@/types";
-import { bulkSetPriority, bulkSetWatchedStatus, bulkToggleFavorite, bulkToggleWatchLater, setPriority, setWatchedStatus, toggleFavorite, toggleWatchLater } from "@/lib/firestore/userVideoState";
-import { toast } from "sonner";
+
+type DiscoverySource = "personal" | "suggested" | "shared";
+const SOURCE_LABELS: Record<DiscoverySource, string> = { personal: "Your Playlists", suggested: "Suggested", shared: "Shared to me" };
 
 export default function LibraryPage() {
-  return (
-    <RequireAuth>
-      <LibraryContent />
-    </RequireAuth>
-  );
+  return <RequireAuth><LibraryContent /></RequireAuth>;
 }
 
 function LibraryContent() {
   const { user } = useAuth();
-  const { loading, videos, refresh, playlists } = useVideoLibrary(user?.uid);
+  const searchParams = useSearchParams();
+  const [videos, setVideos] = React.useState<VideoWithState[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [query, setQuery] = React.useState("");
   const [sort, setSort] = React.useState<SortOption>("recently-added");
-  const [filters, setFilters] = React.useState<HomeFilters>({});
-  const [personalPlaylists, setPersonalPlaylists] = React.useState<PersonalPlaylist[]>([]);
-  const allPlaylists = React.useMemo(() => [...new Map(playlists.map((playlist) => [playlist.id, playlist])).values()], [playlists]);
-  const [playlistDialogOpen, setPlaylistDialogOpen] = React.useState(false);
-  const [selectedPlaylistId, setSelectedPlaylistId] = React.useState("");
-  const [selectedVideo, setSelectedVideo] = React.useState<VideoWithState | null>(null);
-  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
-  const [shareDialogOpen, setShareDialogOpen] = React.useState(false);
-  const [shareVisibility, setShareVisibility] = React.useState<ShareVisibility>("private");
-  const [shareUrl, setShareUrl] = React.useState("");
-  const [shareExpiresAt, setShareExpiresAt] = React.useState<unknown>(null);
-  const [playlistActionLoading, setPlaylistActionLoading] = React.useState(false);
-  const [shareBusy, setShareBusy] = React.useState(false);
+  const [platform, setPlatform] = React.useState<VideoPlatform | "all">("all");
+  const [categoryId, setCategoryId] = React.useState(searchParams.get("category") || "all");
+  const [tagId, setTagId] = React.useState("all");
+  const [sources, setSources] = React.useState<Record<DiscoverySource, boolean>>({ personal: true, suggested: true, shared: true });
 
   React.useEffect(() => {
-    if (!user?.uid) return;
-    listPersonalPlaylists(user.uid).then(setPersonalPlaylists).catch(() => setPersonalPlaylists([]));
-  }, [user?.uid]);
+    const category = searchParams.get("category");
+    if (category) setCategoryId(category);
+  }, [searchParams]);
 
-  const filtered = React.useMemo(() => {
-    const q = query.trim();
-    const normalizedFilters: HomeFilters = { ...filters, ...(q ? { query: q } : {}) };
-    const base = applyFilters(videos, normalizedFilters);
-    return applySort(base, sort);
-  }, [videos, filters, query, sort]);
-
-  const selectedVideos = React.useMemo(() => filtered.filter((video) => selectedIds.includes(video.id)), [filtered, selectedIds]);
-
-  const handleToggleSelect = (videoId: string) => {
-    setSelectedIds((current) => current.includes(videoId) ? current.filter((id) => id !== videoId) : [...current, videoId]);
-  };
-
-  const handleBulkAddToPlaylist = async (playlistId: string) => {
-    if (!user || selectedVideos.length === 0) return;
-    const added = await bulkAddVideosToPersonalPlaylist(
-      user.uid,
-      playlistId,
-      selectedVideos.map((video) => ({
-        title: video.title,
-        videoUrl: video.videoUrl,
-        youtubeVideoId: video.youtubeVideoId,
-        thumbnailUrl: video.thumbnailUrl,
-        durationSeconds: video.durationSeconds,
-        description: video.description ?? null,
-        creator: video.creatorName ?? null,
-        platform: video.platform,
-      }))
-    );
-    if (added === 0) {
-      toast.error("Those videos are already in this playlist.");
-      return;
-    }
-    setSelectedIds([]);
-    toast.success(`Added ${added} video${added === 1 ? "" : "s"} to playlist`);
-  };
-
-  const handleBulkPriority = async (value: PriorityLevel) => {
-    if (!user || selectedVideos.length === 0) return;
-    const playlistIdByVideo = Object.fromEntries(selectedVideos.map((video) => [video.id, video.playlistId]));
-    await bulkSetPriority(user.uid, selectedVideos.map((video) => video.id), playlistIdByVideo, value);
-    setSelectedIds([]);
-    toast.success(value ? `Priority set to ${value}` : "Priority cleared");
-    await refresh();
-  };
-
-  const handleBulkWatched = async (watch: boolean) => {
-    if (!user || selectedVideos.length === 0) return;
-    const playlistIdByVideo = Object.fromEntries(selectedVideos.map((video) => [video.id, video.playlistId]));
-    await bulkSetWatchedStatus(user.uid, selectedVideos.map((video) => video.id), playlistIdByVideo, watch);
-    setSelectedIds([]);
-    toast.success(watch ? "Marked watched" : "Marked unwatched");
-    await refresh();
-  };
-
-  const handleBulkFavorite = async (value: boolean) => {
-    if (!user || selectedVideos.length === 0) return;
-    const playlistIdByVideo = Object.fromEntries(selectedVideos.map((video) => [video.id, video.playlistId]));
-    await bulkToggleFavorite(user.uid, selectedVideos.map((video) => video.id), playlistIdByVideo, value);
-    setSelectedIds([]);
-    toast.success(value ? "Saved to favorites" : "Removed from favorites");
-    await refresh();
-  };
-
-  const handleBulkWatchLater = async (value: boolean) => {
-    if (!user || selectedVideos.length === 0) return;
-    const playlistIdByVideo = Object.fromEntries(selectedVideos.map((video) => [video.id, video.playlistId]));
-    await bulkToggleWatchLater(user.uid, selectedVideos.map((video) => video.id), playlistIdByVideo, value);
-    setSelectedIds([]);
-    toast.success(value ? "Added to Watch Later" : "Removed from Watch Later");
-    await refresh();
-  };
-
-  const handleClearFilters = () => {
-    setQuery("");
-    setFilters({});
-  };
-
-  const handleToggleFavorite = async (video: VideoWithState) => {
+  const load = React.useCallback(async () => {
     if (!user) return;
-    const next = !video.state?.isFavorite;
-    await toggleFavorite(user.uid, video.id, video.playlistId, next);
-    toast.success(next ? "Saved to favorites" : "Removed from favorites");
-    await refresh();
-  };
-
-  const handleToggleWatchLater = async (video: VideoWithState) => {
-    if (!user) return;
-    const next = !video.state?.isWatchLater;
-    await toggleWatchLater(user.uid, video.id, video.playlistId, next);
-    toast.success(next ? "Added to Watch Later" : "Removed from Watch Later");
-    await refresh();
-  };
-
-  const handleSetPriority = async (video: VideoWithState, value: PriorityLevel) => {
-    if (!user) return;
-    await setPriority(user.uid, video.id, video.playlistId, value);
-    toast.success(value ? `Priority set to ${value}` : "Priority cleared");
-    await refresh();
-  };
-
-  const handleToggleWatched = async (video: VideoWithState) => {
-    if (!user) return;
-    const next = video.state?.status !== "completed";
-    await setWatchedStatus(user.uid, video.id, video.playlistId, next);
-    toast.success(next ? "Marked watched" : "Marked unwatched");
-    await refresh();
-  };
-
-  const handleAddToPlaylist = (video: VideoWithState) => {
-    if (!user) return;
-    setSelectedVideo(video);
-    setSelectedPlaylistId(personalPlaylists[0]?.id ?? "");
-    setPlaylistDialogOpen(true);
-  };
-
-  const handleConfirmAddToPlaylist = async () => {
-    if (!user || !selectedVideo || !selectedPlaylistId) {
-      if (selectedVideos.length > 0 && selectedPlaylistId) {
-        setPlaylistActionLoading(true);
-        try {
-          await handleBulkAddToPlaylist(selectedPlaylistId);
-          setPlaylistDialogOpen(false);
-          setSelectedVideo(null);
-          setSelectedPlaylistId("");
-        } finally {
-          setPlaylistActionLoading(false);
-        }
-        return;
-      }
-      toast.error("Choose a playlist first.");
-      return;
-    }
-
-    setPlaylistActionLoading(true);
+    setLoading(true);
     try {
-      const added = await addExistingVideoToPersonalPlaylist(user.uid, selectedPlaylistId, {
-        title: selectedVideo.title,
-        videoUrl: selectedVideo.videoUrl,
-        youtubeVideoId: selectedVideo.youtubeVideoId,
-        thumbnailUrl: selectedVideo.thumbnailUrl,
-        durationSeconds: selectedVideo.durationSeconds,
-        description: selectedVideo.description ?? null,
-        creator: selectedVideo.creatorName ?? null,
-        platform: selectedVideo.platform,
+      const [personalVideos, suggestedPlaylists, acceptedShares, states] = await Promise.all([
+        listAllPersonalVideos(user.uid), listPlaylists(false), listSharesForRecipient(user.uid), getAllUserVideoStates(user.uid),
+      ]);
+      const personal = personalVideos.map(personalVideoToVideoWithState);
+      const suggested: VideoWithState[] = [];
+      for (const playlist of suggestedPlaylists) {
+        const playlistVideos = await listVideos(playlist.id);
+        playlistVideos.forEach((video) => suggested.push({ ...video, state: states[video.id] || null, playlistTitle: playlist.title, source: "suggested" }));
+      }
+      const shared: VideoWithState[] = [];
+      acceptedShares.filter((share) => share.approvalStatus === "accepted").forEach((share) => {
+        if (share.entityType === "video" && share.videoUrl) shared.push(sharedVideoFromRecord(share, share));
+        else (share.videos || []).forEach((video) => shared.push(sharedVideoFromRecord(share, video)));
       });
 
-      if (!added) {
-        toast.error("This video is already in that playlist.");
-        return;
-      }
-
-      toast.success("Added to playlist");
-      setPlaylistDialogOpen(false);
-      setSelectedVideo(null);
-      setSelectedPlaylistId("");
+      const priority: Record<DiscoverySource, number> = { personal: 3, shared: 2, suggested: 1 };
+      const deduped = new Map<string, VideoWithState>();
+      [...suggested, ...shared, ...personal].forEach((video) => {
+        const key = video.videoUrl.trim().toLowerCase();
+        const current = deduped.get(key);
+        if (!current || priority[video.source || "suggested"] > priority[current.source || "suggested"]) deduped.set(key, video);
+      });
+      setVideos(Array.from(deduped.values()));
     } finally {
-      setPlaylistActionLoading(false);
+      setLoading(false);
     }
-  };
+  }, [user]);
 
-  const handleShareVideo = async (video: VideoWithState) => {
-    if (!user) return;
-    setSelectedVideo(video);
-    setShareBusy(true);
-    try {
-      const existing = await findShareForEntity(user.uid, "video", video.id);
-      const record = await createOrUpdateVideoShare(user.uid, {
-        id: video.id,
-        title: video.title,
-        videoUrl: video.videoUrl,
-        thumbnailUrl: video.thumbnailUrl,
-        description: video.description || null,
-        platform: video.platform,
-        creatorName: video.creatorName ?? null,
-        durationSeconds: video.durationSeconds || null,
-      }, existing?.visibility || "private");
-      setShareVisibility(record.visibility || "private");
-      setShareUrl(getShareUrl(record.shareToken, "video"));
-      setShareExpiresAt(record.expiresAt ?? null);
-      setShareDialogOpen(true);
-    } catch (error: any) {
-      toast.error(error?.message || "Unable to prepare this share.");
-    } finally {
-      setShareBusy(false);
+  React.useEffect(() => { load(); }, [load]);
+
+  const categories = Array.from(new Set(videos.map((video) => video.categoryId).filter(Boolean))) as string[];
+  const tags = Array.from(new Set(videos.flatMap((video) => video.tagIds || [])));
+  const filtered = React.useMemo(() => applySort(videos.filter((video) => {
+    if (!sources[video.source || "suggested"]) return false;
+    if (platform !== "all" && (video.platform || "generic") !== platform) return false;
+    if (categoryId !== "all" && video.categoryId !== categoryId) return false;
+    if (tagId !== "all" && !(video.tagIds || []).includes(tagId)) return false;
+    if (query.trim()) {
+      const needle = query.trim().toLowerCase();
+      if (!`${video.title} ${video.creatorName || ""} ${video.playlistTitle || ""}`.toLowerCase().includes(needle)) return false;
     }
-  };
-
-  const handleShareVisibilityChange = async (next: ShareVisibility) => {
-    if (!user || !selectedVideo) return;
-    const record = await createOrUpdateVideoShare(user.uid, {
-      id: selectedVideo.id,
-      title: selectedVideo.title,
-      videoUrl: selectedVideo.videoUrl,
-      thumbnailUrl: selectedVideo.thumbnailUrl,
-      description: selectedVideo.description || null,
-      platform: selectedVideo.platform,
-      creatorName: selectedVideo.creatorName ?? null,
-      durationSeconds: selectedVideo.durationSeconds || null,
-    }, next);
-    setShareVisibility(record.visibility || "private");
-    setShareUrl(getShareUrl(record.shareToken, "video"));
-    setShareExpiresAt(record.expiresAt ?? null);
-    toast.success(`Sharing updated to ${next === "unlisted" ? "Anyone with link" : next === "public" ? "Public" : "Private"}.`);
-  };
-
-  const handleShareExpiryChange = async (next: ShareExpiryOption) => {
-    if (!user || !selectedVideo) return;
-    const record = await createOrUpdateVideoShare(user.uid, {
-      id: selectedVideo.id,
-      title: selectedVideo.title,
-      videoUrl: selectedVideo.videoUrl,
-      thumbnailUrl: selectedVideo.thumbnailUrl,
-      description: selectedVideo.description || null,
-      platform: selectedVideo.platform,
-      creatorName: selectedVideo.creatorName ?? null,
-      durationSeconds: selectedVideo.durationSeconds || null,
-    }, shareVisibility, false, next);
-    setShareExpiresAt(record.expiresAt ?? null);
-    toast.success(next === "never" ? "Link will no longer expire." : `Link now expires ${next === "1h" ? "in 1 hour" : next === "24h" ? "in 24 hours" : next === "7d" ? "in 7 days" : "in 30 days"}.`);
-  };
-
-  const handleShareVideoToUser = async (email: string) => {
-    if (!user || !selectedVideo) return;
-    const base = await createOrUpdateVideoShare(user.uid, {
-      id: selectedVideo.id, title: selectedVideo.title, videoUrl: selectedVideo.videoUrl,
-      thumbnailUrl: selectedVideo.thumbnailUrl, description: selectedVideo.description || null,
-      platform: selectedVideo.platform, creatorName: selectedVideo.creatorName ?? null,
-      durationSeconds: selectedVideo.durationSeconds || null,
-    }, "private", false, shareExpiryOptionFromDate(shareExpiresAt));
-    const token = await user.getIdToken();
-    const response = await fetch(`/api/find-user?email=${encodeURIComponent(email)}`, { headers: { authorization: `Bearer ${token}` } });
-    const match = await response.json() as { found?: boolean; uid?: string; error?: string };
-    if (!response.ok) throw new Error(match.error || "Unable to check the recipient email.");
-    await createDirectedShare(user.uid, base, email, match.found ? match.uid || null : null, user.displayName || user.email);
-    toast.success(match.found ? "Shared successfully. The user has an approval request." : "Share created successfully. The email is not a registered user yet.");
-  };
-
-  const handleCopyShareLink = async () => {
-    if (!shareUrl) return;
-    await navigator.clipboard.writeText(shareUrl);
-    toast.success("Share link copied");
-  };
-
-  const handleRevokeShare = async () => {
-    if (!user || !selectedVideo) return;
-    const existing = await createOrUpdateVideoShare(user.uid, {
-      id: selectedVideo.id,
-      title: selectedVideo.title,
-      videoUrl: selectedVideo.videoUrl,
-      thumbnailUrl: selectedVideo.thumbnailUrl,
-      description: selectedVideo.description || null,
-      platform: selectedVideo.platform,
-      creatorName: selectedVideo.creatorName ?? null,
-      durationSeconds: selectedVideo.durationSeconds || null,
-    }, "private", true);
-    setShareVisibility("private");
-    setShareUrl(existing.shareToken ? getShareUrl(existing.shareToken, "video") : "");
-    setShareExpiresAt(existing.expiresAt ?? null);
-    setShareDialogOpen(false);
-    toast.success("Sharing revoked");
-  };
+    return true;
+  }), sort), [videos, sources, platform, categoryId, tagId, query, sort]);
 
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl space-y-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="font-display text-2xl font-semibold">My Video Library</h1>
-            <p className="text-sm text-muted-foreground">Browse saved videos, monitor progress, and manage your personal learning queue.</p>
-          </div>
-          <div className="flex w-full max-w-lg flex-col gap-2 sm:flex-row">
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search title, creator, or playlist"
-              className="w-full"
-            />
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortOption)}
-              className="h-10 rounded-md border border-input bg-background px-2 text-sm sm:w-auto"
-            >
-              <option value="recently-added">Recently Added</option>
-              <option value="recently-watched">Recently Watched</option>
-              <option value="title-asc">Title A–Z</option>
-              <option value="title-desc">Title Z–A</option>
-              <option value="progress">Progress</option>
-              <option value="priority">Priority</option>
-            </select>
-          </div>
-        </div>
-
+        <div><h1 className="font-display text-2xl font-semibold">Library</h1><p className="text-sm text-muted-foreground">Search and discover videos you can access. Manage them from Playlists, Suggested, or Shared.</p></div>
         <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3">
-          <div className="flex flex-col gap-2 sm:grid sm:grid-cols-2 md:flex md:flex-wrap md:items-center md:gap-2">
-            <Select value={filters.platform || "all"} onValueChange={(value) => setFilters((f) => ({ ...f, platform: value === "all" ? null : (value as VideoPlatform) }))}>
-              <SelectTrigger className="w-full md:w-36"><SelectValue placeholder="Platform" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All platforms</SelectItem>
-                {VIDEO_PLATFORMS.map((platform) => (
-                  <SelectItem key={platform} value={platform}>{platform}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filters.playlistId || "all"} onValueChange={(value) => setFilters((f) => ({ ...f, playlistId: value === "all" ? null : value }))}>
-              <SelectTrigger className="w-full md:w-40"><SelectValue placeholder="Playlist" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All playlists</SelectItem>
-                {allPlaylists.map((playlist) => (
-                  <SelectItem key={playlist.id} value={playlist.id}>{playlist.title}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Select value={filters.status || "all"} onValueChange={(value) => setFilters((f) => ({ ...f, status: value === "all" ? null : (value as any) }))}>
-              <SelectTrigger className="w-full md:w-36"><SelectValue placeholder="Status" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Any status</SelectItem>
-                <SelectItem value="completed">Watched</SelectItem>
-                <SelectItem value="not_started">Unwatched</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={filters.priority || "all"} onValueChange={(value) => setFilters((f) => ({ ...f, priority: value === "all" ? null : (value as any) }))}>
-              <SelectTrigger className="w-full md:w-32"><SelectValue placeholder="Priority" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Any priority</SelectItem>
-                <SelectItem value="high">High</SelectItem>
-                <SelectItem value="medium">Medium</SelectItem>
-                <SelectItem value="low">Low</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Button variant={filters.favoriteOnly ? "accent" : "outline"} size="sm" className="w-full md:w-auto" onClick={() => setFilters((f) => ({ ...f, favoriteOnly: !f.favoriteOnly }))}>
-              Favorites
-            </Button>
-            <Button variant={filters.watchLaterOnly ? "accent" : "outline"} size="sm" className="w-full md:w-auto" onClick={() => setFilters((f) => ({ ...f, watchLaterOnly: !f.watchLaterOnly }))}>
-              Watch Later
-            </Button>
-            <Button variant="ghost" size="sm" className="w-full md:w-auto" onClick={handleClearFilters}>
-              Clear filters
-            </Button>
+          <div className="flex flex-col gap-2 md:flex-row">
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, creator, or playlist" className="flex-1" />
+            <Select value={sort} onValueChange={(value) => setSort(value as SortOption)}><SelectTrigger className="md:w-44"><SelectValue placeholder="Sort" /></SelectTrigger><SelectContent><SelectItem value="recently-added">Recently added</SelectItem><SelectItem value="title-asc">Title A-Z</SelectItem><SelectItem value="title-desc">Title Z-A</SelectItem><SelectItem value="progress">Progress</SelectItem><SelectItem value="duration">Duration</SelectItem></SelectContent></Select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={platform} onValueChange={(value) => setPlatform(value as VideoPlatform | "all")}><SelectTrigger className="w-36"><SelectValue placeholder="Platform" /></SelectTrigger><SelectContent><SelectItem value="all">All platforms</SelectItem>{VIDEO_PLATFORMS.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+            <Select value={categoryId} onValueChange={setCategoryId}><SelectTrigger className="w-36"><SelectValue placeholder="Category" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{categories.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+            <Select value={tagId} onValueChange={setTagId}><SelectTrigger className="w-32"><SelectValue placeholder="Tag" /></SelectTrigger><SelectContent><SelectItem value="all">All tags</SelectItem>{tags.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select>
+            {(Object.keys(SOURCE_LABELS) as DiscoverySource[]).map((source) => <label key={source} className="flex items-center gap-1.5 text-sm"><Checkbox checked={sources[source]} onCheckedChange={(checked) => setSources((current) => ({ ...current, [source]: checked === true }))} />{SOURCE_LABELS[source]}</label>)}
+            <Button variant="ghost" size="sm" onClick={() => { setQuery(""); setPlatform("all"); setCategoryId("all"); setTagId("all"); setSources({ personal: true, suggested: true, shared: true }); }}>Clear</Button>
           </div>
         </div>
-
-        {selectedIds.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
-            <span className="text-sm font-medium">{selectedIds.length} selected</span>
-            <Button variant="outline" size="sm" onClick={() => setSelectedIds([])}>Clear</Button>
-            <Button variant="outline" size="sm" onClick={() => { if (!user || selectedVideos.length === 0) return; setSelectedVideo(null); setSelectedPlaylistId(personalPlaylists[0]?.id ?? ""); setPlaylistDialogOpen(true); }}>Add to playlist</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkWatched(true)}>Mark watched</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkWatched(false)}>Mark unwatched</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkFavorite(true)}>Favorite</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkFavorite(false)}>Unfavorite</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkWatchLater(true)}>Add to Watch Later</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkWatchLater(false)}>Remove from Watch Later</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkPriority("high")}>High priority</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkPriority("medium")}>Medium priority</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkPriority("low")}>Low priority</Button>
-            <Button variant="outline" size="sm" onClick={() => handleBulkPriority(null)}>Clear priority</Button>
-          </div>
-        )}
-
-        <VideoGrid
-          videos={filtered}
-          loading={loading}
-          emptyTitle="No videos in your library"
-          emptyHint="Add a video to your personal playlist or saved library to see it here."
-          showActions
-          showSelection
-          selectedIds={selectedIds}
-          onToggleSelect={handleToggleSelect}
-          onToggleFavorite={handleToggleFavorite}
-          onToggleWatchLater={handleToggleWatchLater}
-          onSetPriority={handleSetPriority}
-          onToggleWatched={handleToggleWatched}
-          onAddToPlaylist={handleAddToPlaylist}
-          onShare={handleShareVideo}
-        />
+        <VideoGrid videos={filtered} loading={loading} emptyTitle="Nothing matches your library" emptyHint="Try changing your search or filters." />
       </div>
-
-      <ShareDialog
-        open={shareDialogOpen}
-        onOpenChange={(open) => {
-          setShareDialogOpen(open);
-          if (!open) {
-            setSelectedVideo(null);
-            setShareUrl("");
-            setShareExpiresAt(null);
-          }
-        }}
-        shareUrl={shareUrl}
-        visibility={shareVisibility}
-        onVisibilityChange={handleShareVisibilityChange}
-        expiresAt={shareExpiresAt}
-        expiryOption={shareExpiryOptionFromDate(shareExpiresAt)}
-        onExpiryChange={handleShareExpiryChange}
-        onCopy={handleCopyShareLink}
-        onRevoke={handleRevokeShare}
-        onShareToUser={handleShareVideoToUser}
-        loading={shareBusy}
-      />
-
-      <Dialog open={playlistDialogOpen} onOpenChange={(open) => {
-        setPlaylistDialogOpen(open);
-        if (!open) {
-          setSelectedVideo(null);
-          setSelectedPlaylistId("");
-        }
-      }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add video to playlist</DialogTitle>
-          </DialogHeader>
-          {personalPlaylists.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Create a personal playlist first, then add this video there.</p>
-          ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">{selectedVideo?.title}</p>
-              <Select value={selectedPlaylistId} onValueChange={setSelectedPlaylistId}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Choose a playlist" />
-                </SelectTrigger>
-                <SelectContent>
-                  {personalPlaylists.map((playlist) => (
-                    <SelectItem key={playlist.id} value={playlist.id}>{playlist.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPlaylistDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleConfirmAddToPlaylist} disabled={playlistActionLoading || personalPlaylists.length === 0 || !selectedPlaylistId}>
-              {playlistActionLoading ? "Adding…" : "Add to playlist"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </AppShell>
   );
+}
+
+function sharedVideoFromRecord(share: ShareRecord, video: ShareRecord | NonNullable<ShareRecord["videos"]>[number]): VideoWithState {
+  const isRecord = "entityType" in video;
+  return {
+    id: isRecord ? video.entityId : video.id,
+    playlistId: share.entityId,
+    title: video.title,
+    videoUrl: video.videoUrl || "",
+    thumbnailUrl: video.thumbnailUrl || "",
+    durationSeconds: isRecord ? undefined : video.durationSeconds || undefined,
+    platform: isRecord ? video.platform || undefined : video.platform,
+    order: 0,
+    createdAt: (share.createdAt as any) || null,
+    updatedAt: (share.updatedAt as any) || null,
+    playlistTitle: share.entityType === "playlist" ? share.title : undefined,
+    source: "shared",
+    shareToken: share.shareToken,
+    shareEntityType: share.entityType,
+    state: null,
+  };
 }

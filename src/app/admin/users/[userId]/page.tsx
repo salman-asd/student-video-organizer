@@ -187,7 +187,7 @@ function AdminUserDetailContent() {
             </p>
             {personalPlaylists.length === 0 && <EmptyRow text="This student hasn't created any personal playlists." />}
             {personalPlaylists.map((p) => (
-              <Link key={p.id} href={`/my-playlists/${p.id}?owner=${userId}`}>
+                <Link key={p.id} href={`/playlists/${p.id}?owner=${userId}`}>
                 <Card className="transition-colors hover:bg-secondary/40">
                   <CardContent className="flex items-center justify-between p-3">
                     <div className="flex items-center gap-2">

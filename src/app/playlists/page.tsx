@@ -2,71 +2,177 @@
 
 import * as React from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
-import { listPlaylists } from "@/lib/firestore/playlists";
-import { Card } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ListVideo } from "lucide-react";
-import type { Playlist } from "@/types";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { createPersonalPlaylist, listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
+import type { PersonalPlaylist, PersonalPlaylistVisibility } from "@/types";
+import { Lock, Plus, ListVideo, Youtube } from "lucide-react";
+import { formatWatchTime } from "@/lib/utils";
+import { toast } from "sonner";
+import { QuickAddVideoDialog } from "@/components/video/QuickAddVideoDialog";
+import { TagCategoryPicker } from "@/components/shared/TagCategoryPicker";
 
-export default function PlaylistsPage() {
+const PERSONAL_PLAYLIST_VISIBILITY_LABELS: Record<PersonalPlaylistVisibility, string> = {
+  private: "Private",
+  link: "Anyone with link",
+  public: "Public",
+};
+
+export default function MyPlaylistsPage() {
   return (
     <RequireAuth>
-      <PlaylistsContent />
+      <MyPlaylistsContent />
     </RequireAuth>
   );
 }
 
-function PlaylistsContent() {
-  const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
-  const [loading, setLoading] = React.useState(true);
+function MyPlaylistsContent() {
+  const { user } = useAuth();
+  const searchParams = useSearchParams();
+  // Admins can pass ?owner=<uid> to browse/manage a specific student's
+  // personal playlists from the Admin > User detail page. Otherwise this is
+  // always "my own" playlists.
+  const ownerId = searchParams.get("owner") || user?.uid || "";
 
+  const [playlists, setPlaylists] = React.useState<PersonalPlaylist[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [title, setTitle] = React.useState("");
+  const [description, setDescription] = React.useState("");
+  const [visibility, setVisibility] = React.useState<PersonalPlaylistVisibility>("private");
+  const [categoryId, setCategoryId] = React.useState<string | null>(null);
+  const [tagIds, setTagIds] = React.useState<string[]>([]);
+  const [saveVideoOpen, setSaveVideoOpen] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    if (!ownerId) return;
+    setLoading(true);
+    setPlaylists(await listPersonalPlaylists(ownerId));
+    setLoading(false);
+  }, [ownerId]);
+
+  React.useEffect(() => { load(); }, [load]);
   React.useEffect(() => {
-    listPlaylists(false).then((p) => { setPlaylists(p); setLoading(false); });
-  }, []);
+    if (searchParams.get("add") === "1") setSaveVideoOpen(true);
+  }, [searchParams]);
+
+  async function handleCreate() {
+    if (!ownerId || !title.trim()) return;
+    await createPersonalPlaylist(ownerId, title.trim(), description.trim(), visibility, categoryId, tagIds);
+    setTitle(""); setDescription(""); setVisibility("private"); setCategoryId(null); setTagIds([]); setDialogOpen(false);
+    toast.success("Playlist created");
+    load();
+  }
+
+  const isViewingOther = ownerId !== user?.uid;
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-7xl space-y-4">
-        <div>
-          <h1 className="font-display text-2xl font-semibold">Playlists</h1>
-          <p className="text-sm text-muted-foreground">The shared learning library, curated by your admin.</p>
+      <div className="mx-auto max-w-5xl space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h1 className="font-display text-2xl font-semibold flex items-center gap-2">
+              <Lock className="h-5 w-5 text-accent" /> My Playlists
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {isViewingOther
+                ? "Managing this student's personal playlists as admin."
+                : "Private to you — no other student can see these."}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!isViewingOther && <Button variant="outline" size="sm" onClick={() => setSaveVideoOpen(true)}><Plus className="h-4 w-4" /> Save Video</Button>}
+            <Button asChild variant="outline" size="sm"><Link href="/playlists/import"><Youtube className="h-4 w-4" /> Import Playlist</Link></Button>
+            <Button size="sm" onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" /> New Playlist</Button>
+          </div>
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-40 w-full rounded-lg" />)}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-lg" />)}
           </div>
         ) : playlists.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border py-16 text-center text-sm text-muted-foreground">
-            No playlists yet. Check back once your admin adds some.
+            No personal playlists yet. Create one to organize videos your own way.
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {playlists.map((p) => (
-              <Link key={p.id} href={`/playlists/${p.id}`}>
-                <Card className="flex h-full flex-col overflow-hidden transition-shadow hover:shadow-md">
-                  <div className="relative aspect-[16/7] w-full bg-secondary">
-                    {p.coverThumbnailUrl ? (
-                      <Image src={p.coverThumbnailUrl} alt={p.title} fill className="object-cover" />
-                    ) : (
-                      <div className="flex h-full items-center justify-center"><ListVideo className="h-8 w-8 text-muted-foreground" /></div>
-                    )}
-                  </div>
-                  <div className="flex flex-1 flex-col gap-1.5 p-4">
-                    <h3 className="font-display text-base font-semibold">{p.title}</h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[...playlists].sort((a, b) => Number(!!b.isUnsorted) - Number(!!a.isUnsorted)).map((p) => (
+              <Link key={p.id} href={`/playlists/${p.id}${isViewingOther ? `?owner=${ownerId}` : ""}`}>
+                <Card className="h-full transition-shadow hover:shadow-md">
+                  <CardContent className="space-y-2 p-4">
+                    <div className="flex items-center gap-2">
+                      <ListVideo className="h-4 w-4 text-muted-foreground" />
+                      <p className="truncate font-medium">{p.isUnsorted ? `Unsorted (${p.videoCount || 0})` : p.title}</p>
+                    </div>
                     {p.description && <p className="line-clamp-2 text-sm text-muted-foreground">{p.description}</p>}
-                    <div className="mt-auto pt-2"><Badge variant="secondary">{p.videoCount} videos</Badge></div>
-                  </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <Badge variant="secondary">{p.videoCount} videos</Badge>
+                      {!!p.totalDurationSeconds && <Badge variant="secondary">{formatWatchTime(p.totalDurationSeconds)}</Badge>}
+                      <Badge variant="outline">{PERSONAL_PLAYLIST_VISIBILITY_LABELS[p.visibility] || "Private"}</Badge>
+                    </div>
+                  </CardContent>
                 </Card>
               </Link>
             ))}
           </div>
         )}
       </div>
+
+      {!isViewingOther && <QuickAddVideoDialog
+        ownerId={ownerId}
+        playlists={playlists}
+        open={saveVideoOpen}
+        onOpenChange={setSaveVideoOpen}
+        onSaved={load}
+      />}
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>New Personal Playlist</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Title</Label>
+              <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. My Interview Prep" />
+            </div>
+            {ownerId && <TagCategoryPicker userId={ownerId} categoryId={categoryId} tagIds={tagIds} onCategoryChange={setCategoryId} onTagsChange={setTagIds} />}
+            <div className="space-y-1.5">
+              <Label>Description (optional)</Label>
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Visibility</Label>
+              <Select value={visibility} onValueChange={(value) => setVisibility(value as PersonalPlaylistVisibility)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Visibility" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(PERSONAL_PLAYLIST_VISIBILITY_LABELS) as PersonalPlaylistVisibility[]).map((value) => (
+                    <SelectItem key={value} value={value}>{PERSONAL_PLAYLIST_VISIBILITY_LABELS[value]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreate}>Create</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

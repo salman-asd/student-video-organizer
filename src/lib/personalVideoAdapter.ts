@@ -21,6 +21,8 @@ export function personalVideoToVideoWithState(pv: PersonalVideo & { playlistTitl
     creatorName: pv.creator,
     platform: pv.platform,
     description: pv.description || undefined,
+    categoryId: pv.categoryId || null,
+    tagIds: pv.tagIds || [],
     order: pv.order,
     createdAt: pv.createdAt,
     updatedAt: pv.updatedAt,

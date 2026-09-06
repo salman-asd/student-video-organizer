@@ -56,12 +56,16 @@ export async function createPersonalPlaylist(
   ownerId: string,
   title: string,
   description = "",
-  visibility: PersonalPlaylistVisibility = "private"
+  visibility: PersonalPlaylistVisibility = "private",
+  categoryId: string | null = null,
+  tagIds: string[] = [],
 ): Promise<string> {
   const ref = await addDoc(playlistsCol(ownerId), {
     title,
     description,
     visibility,
+    categoryId,
+    tagIds,
     sortMode: "custom" as PersonalPlaylistSortMode,
     sortOrder: [],
     videoCount: 0,
@@ -77,11 +81,15 @@ export async function renamePersonalPlaylist(
   title: string,
   description?: string,
   visibility?: PersonalPlaylistVisibility,
+  categoryId?: string | null,
+  tagIds?: string[],
 ) {
   await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId), {
     title,
     ...(description !== undefined ? { description } : {}),
     ...(visibility ? { visibility } : {}),
+    ...(categoryId !== undefined ? { categoryId } : {}),
+    ...(tagIds !== undefined ? { tagIds } : {}),
     updatedAt: serverTimestamp(),
   });
 }
@@ -255,6 +263,8 @@ export async function addPersonalVideo(
     description?: string | null;
     creator?: string | null;
     publishedAt?: string | null;
+    categoryId?: string | null;
+    tagIds?: string[];
     platform?: "youtube" | "youtube-shorts" | "facebook" | "vimeo" | "generic";
   }
 ): Promise<string> {
@@ -351,7 +361,7 @@ export async function findDuplicatePersonalVideoUrl(ownerId: string, playlistId:
 
 export async function updatePersonalVideoMeta(
   ownerId: string, playlistId: string, videoId: string,
-  data: Partial<Pick<PersonalVideo, "title" | "videoUrl" | "thumbnailUrl" | "durationSeconds">>
+  data: Partial<Pick<PersonalVideo, "title" | "videoUrl" | "thumbnailUrl" | "durationSeconds" | "categoryId" | "tagIds">>
 ) {
   const videoRef = doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId);
 

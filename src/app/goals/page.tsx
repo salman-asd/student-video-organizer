@@ -333,7 +333,7 @@ function GoalsContent() {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <ListVideo className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                                 {linkedPlaylists.map((p) => (
-                                  <Link key={p.id} href={`/my-playlists/${p.id}`}>
+                                  <Link key={p.id} href={`/playlists/${p.id}`}>
                                     <Badge variant="outline" className="font-normal hover:bg-secondary">{p.title}</Badge>
                                   </Link>
                                 ))}
@@ -343,7 +343,7 @@ function GoalsContent() {
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <PlayCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                                 {linkedVideos.map((v) => (
-                                  <Link key={v.id} href={`/my-playlists/${v.playlistId}/${v.id}`}>
+                                  <Link key={v.id} href={`/playlists/${v.playlistId}/${v.id}`}>
                                     <Badge variant="outline" className="font-normal hover:bg-secondary">{v.title}</Badge>
                                   </Link>
                                 ))}
