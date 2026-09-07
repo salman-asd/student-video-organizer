@@ -383,7 +383,7 @@ export interface VideoWithState extends Video {
    *  (Watch Later, Favorites, Priority, Continue Watching, Dashboard) merge
    *  both tiers, and this tag tells write-handlers which Firestore path to
    *  update. Undefined is treated as "shared" for backward compatibility. */
-  source?: "suggested" | "shared" | "personal";
+  source?: "shared" | "personal";
   shareToken?: string;
   shareEntityType?: ShareEntityType;
 }

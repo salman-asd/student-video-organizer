@@ -5,7 +5,7 @@ import { getBackToPlaylistHref, shouldUsePlaylistSidebar } from "./watchPage";
 
 describe("getBackToPlaylistHref", () => {
   it("routes shared videos back to the library playlist page", () => {
-    assert.equal(getBackToPlaylistHref("playlist-123", null), "/suggested/playlist-123");
+    assert.equal(getBackToPlaylistHref("playlist-123", null), "/library");
   });
 
   it("routes personal videos back to the owner's playlist editor", () => {

@@ -1,7 +1,7 @@
 export function getBackToPlaylistHref(playlistId: string | null | undefined, ownerId?: string | null): string {
-  if (!playlistId) return "/suggested";
+  if (!playlistId) return "/library";
   if (ownerId) return `/playlists/${playlistId}?owner=${ownerId}`;
-  return `/suggested/${playlistId}`;
+  return "/library";
 }
 
 export function shouldUsePlaylistSidebar(playlistVisible: boolean, width: number): boolean {

@@ -110,7 +110,7 @@ export function VideoCard({
           <h3 className="line-clamp-2 text-sm font-medium leading-snug">{video.title}</h3>
           <p className="truncate text-xs text-muted-foreground">{creator}</p>
           <p className="truncate text-[11px] text-muted-foreground">{video.playlistTitle || "User library"} · Added {addedAt}</p>
-          {video.source && <Badge variant="outline" className="w-fit text-[10px]">{video.source === "personal" ? "Your playlist" : video.source === "suggested" ? "Suggested" : "Shared"}</Badge>}
+          {video.source && <Badge variant="outline" className="w-fit text-[10px]">{video.source === "personal" ? "Your playlist" : "Shared"}</Badge>}
         </div>
 
         <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1">
