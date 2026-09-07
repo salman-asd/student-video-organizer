@@ -31,9 +31,10 @@ function AdminCategoriesContent() {
   const [newTag, setNewTag] = React.useState("");
 
   const load = React.useCallback(async () => {
-    setCategories(await listCategories());
+    if (!user) return;
+    setCategories(await listCategories(user.uid));
     setTags(await listTags());
-  }, []);
+  }, [user]);
 
   React.useEffect(() => { load(); }, [load]);
 
@@ -58,7 +59,7 @@ function AdminCategoriesContent() {
       <div className="mx-auto max-w-3xl space-y-8">
         <div>
           <h1 className="font-display text-2xl font-semibold">Categories & Tags</h1>
-          <p className="text-sm text-muted-foreground">Manage the global taxonomy used to organize the library.</p>
+          <p className="text-sm text-muted-foreground">Manage your categories and the shared tags used to organize content.</p>
         </div>
 
         <Card>
@@ -72,7 +73,7 @@ function AdminCategoriesContent() {
               {categories.map((c) => (
                 <Badge key={c.id} variant="secondary" className="gap-1">
                   {c.name}
-                  <button onClick={async () => { await deleteCategory(c.id); load(); }} aria-label={`Remove ${c.name}`}><X className="h-3 w-3" /></button>
+                  <button onClick={async () => { if (user) await deleteCategory(user.uid, c.id); load(); }} aria-label={`Remove ${c.name}`}><X className="h-3 w-3" /></button>
                 </Badge>
               ))}
               {categories.length === 0 && <p className="text-sm text-muted-foreground">No categories yet.</p>}

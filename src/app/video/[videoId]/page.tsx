@@ -75,9 +75,9 @@ function VideoPageContent() {
   }, [playlistVisible]);
 
   React.useEffect(() => {
-    previousProgressRef.current = state?.currentPositionSeconds || 0;
+    previousProgressRef.current = 0;
     lastProgressSaveRef.current = Date.now();
-  }, [state?.currentPositionSeconds, videoId]);
+  }, [videoId]);
 
   const load = React.useCallback(async () => {
     if (!user || !playlistId) return;
@@ -142,7 +142,7 @@ function VideoPageContent() {
       ...(s as UserVideoState),
       currentPositionSeconds: snapshot.currentSeconds,
       watchedPercentage: snapshot.percent,
-      status: snapshot.completed ? "completed" : (s?.status === "completed" ? "completed" : (snapshot.percent > 0 ? "in_progress" : "not_started")),
+      status: s?.status === "completed" ? "completed" : (snapshot.percent > 0 ? "in_progress" : "not_started"),
     }));
 
     // Nothing worth persisting yet (player hasn't actually started).
@@ -153,13 +153,13 @@ function VideoPageContent() {
     previousProgressRef.current = cur;
   }
 
-  async function handleEnded(dur: number) {
+  async function handleEnded(cur: number, dur: number) {
     if (!user || !video) return;
-    const snapshot = calculateProgress(dur, dur);
-    await saveProgress(user.uid, video.id, video.playlistId, dur, 100);
+    const finalSeconds = Number.isFinite(cur) && cur > 0 ? cur : dur;
+    await saveProgress(user.uid, video.id, video.playlistId, finalSeconds, 100);
     lastProgressSaveRef.current = Date.now();
-    previousProgressRef.current = dur;
-    setState((s) => ({ ...(s as UserVideoState), status: "completed", currentPositionSeconds: dur, watchedPercentage: snapshot.percent }));
+    previousProgressRef.current = finalSeconds;
+    setState((s) => ({ ...(s as UserVideoState), status: "completed", currentPositionSeconds: finalSeconds, watchedPercentage: 100 }));
     toast.success("Nice work — video completed!");
   }
 

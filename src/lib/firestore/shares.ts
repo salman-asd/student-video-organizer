@@ -3,6 +3,7 @@ import {
   setDoc, updateDoc, where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { getCategory } from "@/lib/firestore/categoriesTags";
 import { computeExpiresAt, generateShareToken, isShareExpired, isShareRevoked, resolveShareVisibilityState } from "@/lib/sharing";
 import type { ShareRecord, ShareVisibility, ShareEntityType, ShareExpiryOption, Video, PersonalPlaylist, Playlist, VideoPlatform, ShareApprovalStatus } from "@/types";
 
@@ -17,6 +18,7 @@ type VideoShareInput = {
   platform?: VideoPlatform;
   creatorName?: string | null;
   durationSeconds?: number | null;
+  categoryId?: string | null;
 };
 
 type PlaylistShareInput = {
@@ -25,6 +27,7 @@ type PlaylistShareInput = {
   description?: string | null;
   videoCount: number;
   coverThumbnailUrl?: string | null;
+  categoryId?: string | null;
 };
 
 export async function getShareByToken(token: string): Promise<ShareRecord | null> {
@@ -113,6 +116,7 @@ export async function createOrUpdateVideoShare(
     videoUrl: video.videoUrl || null,
     platform: video.platform || null,
     creatorName: video.creatorName || null,
+    categoryName: video.categoryId ? (await getCategory(ownerUid, video.categoryId))?.name || null : null,
     revokedAt: revokeNow ? (serverTimestamp() as any) : null,
     expiresAt: expiresAt as any,
     createdAt: existing?.createdAt || serverTimestamp(),
@@ -126,7 +130,7 @@ export async function createOrUpdateVideoShare(
 export async function createOrUpdatePlaylistShare(
   ownerUid: string,
   playlist: PlaylistShareInput,
-  videos: Array<{ id: string; title: string; videoUrl: string; thumbnailUrl?: string | null; durationSeconds?: number | null; platform?: any }>,
+  videos: Array<{ id: string; title: string; videoUrl: string; thumbnailUrl?: string | null; durationSeconds?: number | null; platform?: any; categoryId?: string | null }>,
   visibility: ShareVisibility = "private",
   revokeNow = false,
   expiryOption?: ShareExpiryOption,
@@ -136,6 +140,7 @@ export async function createOrUpdatePlaylistShare(
   const nextState = resolveShareVisibilityState(existing?.revokedAt, visibility, revokeNow);
   const expiresAt = expiryOption !== undefined ? computeExpiresAt(expiryOption) : (existing?.expiresAt ?? null);
 
+  const playlistCategory = playlist.categoryId ? await getCategory(ownerUid, playlist.categoryId) : null;
   const record: ShareRecord = {
     id: token,
     ownerUid,
@@ -146,14 +151,16 @@ export async function createOrUpdatePlaylistShare(
     title: playlist.title,
     description: playlist.description || null,
     thumbnailUrl: (playlist as any).coverThumbnailUrl || null,
-    videos: videos.map((video) => ({
+    categoryName: playlistCategory?.name || null,
+    videos: await Promise.all(videos.map(async (video) => ({
       id: video.id,
       title: video.title,
       videoUrl: video.videoUrl,
       thumbnailUrl: video.thumbnailUrl || null,
       durationSeconds: video.durationSeconds || null,
       platform: video.platform,
-    })),
+      categoryName: video.categoryId ? (await getCategory(ownerUid, video.categoryId))?.name || null : null,
+    }))),
     revokedAt: revokeNow ? (serverTimestamp() as any) : null,
     expiresAt: expiresAt as any,
     createdAt: existing?.createdAt || serverTimestamp(),

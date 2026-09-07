@@ -81,7 +81,8 @@ PERSONAL (per user, never duplicates the video)
   users/{uid}/bookmarks/{videoId}/items/{id}      timestamp bookmarks
   users/{uid}/goals/{goalId}
 
-  categories/{id}, tags/{id}                     global taxonomy, admin-managed
+  users/{uid}/categories/{id}                    per-user categories
+  tags/{id}                                      shared tags, admin-managed
 ```
 
 A video is stored **once** per playlist, not once per student. Every

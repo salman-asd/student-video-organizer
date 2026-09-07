@@ -11,13 +11,13 @@ describe("watch progress calculations", () => {
 
     const complete = calculateProgress(171, 180);
     assert.equal(complete.percent, 95);
-    assert.equal(complete.completed, true);
+    assert.equal(complete.completed, false);
   });
 
   it("throttles persistence when the change is too small or too frequent", () => {
-    assert.equal(shouldPersistProgress({ currentSeconds: 30, durationSeconds: 180, lastSavedAt: 0, now: 1000, previousSeconds: 20 }), true);
+    assert.equal(shouldPersistProgress({ currentSeconds: 30, durationSeconds: 180, lastSavedAt: 0, now: 60000, previousSeconds: 20 }), true);
     assert.equal(shouldPersistProgress({ currentSeconds: 31, durationSeconds: 180, lastSavedAt: 1000, now: 1400, previousSeconds: 30 }), false);
-    assert.equal(shouldPersistProgress({ currentSeconds: 120, durationSeconds: 180, lastSavedAt: 0, now: 2000, previousSeconds: 90 }), true);
+    assert.equal(shouldPersistProgress({ currentSeconds: 120, durationSeconds: 180, lastSavedAt: 0, now: 120000, previousSeconds: 90 }), true);
   });
 
   it("marks only legitimately started, unfinished videos as resume-eligible", () => {

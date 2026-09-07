@@ -660,6 +660,7 @@ function PersonalPlaylistEditorContent() {
         id: v.id,
         title: v.title,
         videoUrl: v.videoUrl,
+        categoryId: v.categoryId,
         thumbnailUrl: v.thumbnailUrl,
         durationSeconds: v.durationSeconds,
         platform: v.platform,
@@ -683,6 +684,7 @@ function PersonalPlaylistEditorContent() {
       videoUrl: v.videoUrl,
       thumbnailUrl: v.thumbnailUrl,
       durationSeconds: v.durationSeconds,
+      categoryId: v.categoryId,
       platform: v.platform,
     })), next);
     setShareVisibility(record.visibility || "private");
@@ -699,6 +701,7 @@ function PersonalPlaylistEditorContent() {
       videoUrl: v.videoUrl,
       thumbnailUrl: v.thumbnailUrl,
       durationSeconds: v.durationSeconds,
+      categoryId: v.categoryId,
       platform: v.platform,
     })), shareVisibility, false, next);
     setShareExpiresAt(record.expiresAt ?? null);
@@ -716,6 +719,7 @@ function PersonalPlaylistEditorContent() {
     const base = await createOrUpdatePlaylistShare(user.uid, playlist, videos.map((video) => ({
       id: video.id, title: video.title, videoUrl: video.videoUrl, thumbnailUrl: video.thumbnailUrl,
       durationSeconds: video.durationSeconds, platform: video.platform,
+      categoryId: video.categoryId,
     })), "private", false, shareExpiryOptionFromDate(shareExpiresAt));
     const token = await user.getIdToken();
     const response = await fetch(`/api/find-user?email=${encodeURIComponent(email)}`, { headers: { authorization: `Bearer ${token}` } });
@@ -733,6 +737,7 @@ function PersonalPlaylistEditorContent() {
       videoUrl: v.videoUrl,
       thumbnailUrl: v.thumbnailUrl,
       durationSeconds: v.durationSeconds,
+      categoryId: v.categoryId,
       platform: v.platform,
     })), "private", true);
     setShareVisibility("private");
