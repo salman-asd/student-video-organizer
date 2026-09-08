@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Download, FileVideo, ListVideo, Menu, Search, LogOut, ShieldCheck, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -100,10 +101,10 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
           <Tooltip>
             <TooltipTrigger asChild>
               <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-2.5" aria-label="Import playlist">
-                <a href="/playlists/import">
+                <Link href="/playlists/import" className="inline-flex items-center gap-1.5">
                   <Download className="h-4 w-4 shrink-0" />
                   <span className="hidden sm:inline">Import playlist</span>
-                </a>
+                </Link>
               </Button>
             </TooltipTrigger>
             <TooltipContent>Import playlist</TooltipContent>
