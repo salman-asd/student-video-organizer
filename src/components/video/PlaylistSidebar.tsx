@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CheckCircle2, PlayCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ interface PlaylistSidebarProps {
 }
 
 export function PlaylistSidebar({ videos, currentVideoId, playlistId, ownerId, title, className }: PlaylistSidebarProps) {
+  const router = useRouter();
   const currentIndex = videos.findIndex((video) => video.id === currentVideoId);
   const prev = currentIndex > 0 ? videos[currentIndex - 1] : null;
   const next = currentIndex >= 0 && currentIndex < videos.length - 1 ? videos[currentIndex + 1] : null;
@@ -52,11 +54,12 @@ export function PlaylistSidebar({ videos, currentVideoId, playlistId, ownerId, t
           const href = getVideoHref(video, playlistId, ownerId);
 
           return (
-            <Link
+            <button
               key={video.id}
-              href={href}
+              type="button"
+              onClick={() => router.push(href)}
               className={cn(
-                "flex items-center gap-2.5 rounded-lg border p-2 transition-colors",
+                "flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors",
                 isActive
                   ? "border-primary/60 bg-primary/5 shadow-sm"
                   : "border-transparent bg-secondary/20 hover:border-border hover:bg-secondary/30"
@@ -94,7 +97,7 @@ export function PlaylistSidebar({ videos, currentVideoId, playlistId, ownerId, t
               {video.id === currentVideoId ? (
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" />
               ) : null}
-            </Link>
+            </button>
           );
         })}
       </div>
