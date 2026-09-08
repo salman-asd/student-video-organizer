@@ -258,6 +258,14 @@ function PersonalVideoContent() {
                     Watched
                   </span>
                 )}
+                {video.status !== "completed" && video.watchedPercentage > 0 && (
+                  <span className="inline-flex items-center gap-1.5 text-amber-500">
+                    <span className="h-1.5 w-10 overflow-hidden rounded-full bg-yellow-200">
+                      <span className="block h-full rounded-full bg-yellow-500" style={{ width: `${Math.min(100, video.watchedPercentage)}%` }} />
+                    </span>
+                    {video.watchedPercentage}%
+                  </span>
+                )}
                 <span>· Personal video{isViewingOther ? " (viewing as admin)" : ""}</span>
               </p>
             </div>
