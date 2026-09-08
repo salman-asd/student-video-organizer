@@ -47,6 +47,8 @@ export function PlaylistSidebar({ videos, currentVideoId, playlistId, ownerId, t
       <div className="max-h-[70vh] space-y-2 overflow-y-auto pr-1">
         {videos.map((video, index) => {
           const isActive = video.id === currentVideoId;
+          const isComplete = "status" in video ? video.status === "completed" : false;
+          const watchedPercentage = "watchedPercentage" in video ? Math.max(0, Math.min(100, Number(video.watchedPercentage ?? 0))) : 0;
           const href = getVideoHref(video, playlistId, ownerId);
 
           return (
@@ -62,6 +64,11 @@ export function PlaylistSidebar({ videos, currentVideoId, playlistId, ownerId, t
             >
               <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-md bg-secondary">
                 <Image src={video.thumbnailUrl} alt={video.title} fill className="object-cover" sizes="80px" />
+                {!isActive && watchedPercentage > 0 && !isComplete && (
+                  <div className="absolute inset-x-0 bottom-0 h-2 bg-black/20">
+                    <div className="h-full bg-yellow-400" style={{ width: `${watchedPercentage}%` }} />
+                  </div>
+                )}
               </div>
 
               <div className="min-w-0 flex-1">
@@ -72,6 +79,7 @@ export function PlaylistSidebar({ videos, currentVideoId, playlistId, ownerId, t
                 <p className={cn("line-clamp-2 text-sm leading-snug", isActive ? "font-medium" : "font-normal")}>{video.title}</p>
                 <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
                   <span>{formatDuration(video.durationSeconds)}</span>
+                  {!isActive && isComplete && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />}
                   {video.id === currentVideoId && (
                     <>
                       <span>•</span>

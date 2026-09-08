@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
@@ -8,13 +9,12 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { VideoActionsBar } from "@/components/video/VideoActionsBar";
 import { PlaylistSidebar } from "@/components/video/PlaylistSidebar";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Lock, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Lock, PanelRightClose, PanelRightOpen } from "lucide-react";
 import {
   getPersonalPlaylist, getPersonalVideo, listPersonalVideos, savePersonalVideoProgress, setPersonalVideoPriority,
   setPersonalVideoWatched, togglePersonalVideoFavorite, togglePersonalVideoWatchLater,
@@ -216,10 +216,10 @@ function PersonalVideoContent() {
       <div className="mx-auto max-w-7xl space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Button asChild variant="outline" size="sm" className="gap-2">
-            <a href={backToPlaylistHref} className="inline-flex items-center gap-2">
+            <Link href={backToPlaylistHref} className="inline-flex items-center gap-2">
               <ArrowLeft className="h-4 w-4" />
               Back to Playlist
-            </a>
+            </Link>
           </Button>
 
           {playlistVideos.length > 0 && (
@@ -246,15 +246,20 @@ function PersonalVideoContent() {
             </div>
 
             <div>
-              <h1 className="font-display text-xl font-semibold flex items-center gap-2">
-                <Lock className="h-4 w-4 text-accent" /> {video.title}
-              </h1>
-              <p className="text-sm text-muted-foreground">{formatDuration(video.durationSeconds)} · Personal video{isViewingOther ? " (viewing as admin)" : ""}</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Progress value={video.watchedPercentage} />
-              <p className="text-xs text-muted-foreground">{video.watchedPercentage}% watched</p>
+              <div className="flex items-center gap-2">
+                <Lock className="h-4 w-4 text-accent" />
+                <h1 className="font-display text-xl font-semibold">{video.title}</h1>
+              </div>
+              <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                <span>{formatDuration(video.durationSeconds)}</span>
+                {video.status === "completed" && (
+                  <span className="inline-flex items-center gap-1 text-emerald-600">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Watched
+                  </span>
+                )}
+                <span>· Personal video{isViewingOther ? " (viewing as admin)" : ""}</span>
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
