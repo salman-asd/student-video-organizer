@@ -9,6 +9,7 @@ interface Props {
   youtubeVideoId?: string | null;
   videoUrl: string;
   startSeconds?: number;
+  autoPlay?: boolean;
   className?: string;
   onProgress: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
   onPause: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
@@ -37,7 +38,7 @@ interface Props {
  * `generic` URL) does this fall back to a simple "open externally" card —
  * this app never hosts or proxies video files itself.
  */
-export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, className, onProgress, onPause, onEnded }: Props) {
+export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, autoPlay = false, className, onProgress, onPause, onEnded }: Props) {
   const playerRef = React.useRef<YouTubePlayer | null>(null);
   const intervalRef = React.useRef<ReturnType<typeof setInterval>>();
   // The YouTube IFrame API's own internal messaging can throw (its minified
@@ -92,6 +93,9 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, classN
 
   function handleReady(e: { target: YouTubePlayer }) {
     playerRef.current = e.target;
+    if (autoPlay) {
+      try { e.target.playVideo(); } catch { /* Browser autoplay policy may block this. */ }
+    }
   }
 
   function handleStateChange(e: { data: number; target: YouTubePlayer }) {

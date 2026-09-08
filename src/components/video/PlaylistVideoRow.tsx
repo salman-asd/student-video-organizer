@@ -87,6 +87,11 @@ export function PlaylistVideoRow({
             <CheckCircle2 className="h-4 w-4 text-white" />
           </span>
         )}
+        {!isWatched && video.watchedPercentage > 0 && (
+          <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-white">
+            {video.watchedPercentage}%
+          </span>
+        )}
       </Link>
 
       <Link href={watchHref} className="min-w-0 flex-1">
@@ -94,7 +99,7 @@ export function PlaylistVideoRow({
         <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
           {lessonLabel && <span className="font-medium text-foreground/70">{lessonLabel}</span>}
           {video.durationSeconds ? <span>{formatDuration(video.durationSeconds)}</span> : null}
-          {!isWatched && video.watchedPercentage > 0 && <span>{video.watchedPercentage}% watched</span>}
+          {!isWatched && video.watchedPercentage > 0 && <span className="font-medium text-primary">{video.watchedPercentage}% watched</span>}
         </div>
       </Link>
 
