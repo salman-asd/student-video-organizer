@@ -12,7 +12,7 @@ interface Props {
   className?: string;
   onProgress: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
   onPause: (currentSeconds: number, durationSeconds: number, force?: boolean) => void;
-  onEnded: (durationSeconds: number) => void;
+  onEnded: (currentSeconds: number, durationSeconds: number) => void;
 }
 
 /**
@@ -61,7 +61,7 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, classN
     }
   }
 
-  // `startSeconds` is fed from the same progress state we save every ~20s,
+  // `startSeconds` is fed from the same progress state we save periodically,
   // so it changes on every tick. `opts` must NOT be rebuilt on those
   // updates — react-youtube treats a new `opts` object as a real change
   // and reloads/reseeks the underlying iframe player, which pauses
@@ -102,12 +102,12 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, classN
     clearPoll();
 
     if (e.data === YT_PLAYING) {
-      // Periodic save while playing — every 20s, not every second, to
+      // Periodic save while playing — every 60s, not every second, to
       // minimize Firestore writes (see README > Firestore optimization).
       intervalRef.current = setInterval(async () => {
         const result = await safeReadTime(e.target);
         if (result) onProgress(result[0], result[1]);
-      }, 20000);
+      }, 60000);
     }
 
     if (e.data === YT_PAUSED) {
@@ -119,14 +119,24 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, classN
     }
 
     if (e.data === YT_ENDED) {
-      Promise.resolve(e.target.getDuration()).then((dur: number) => onEnded(Number(dur))).catch(() => {});
+      Promise.all([e.target.getCurrentTime(), e.target.getDuration()]).then(([cur, dur]) => {
+        const currentSeconds = Number(cur);
+        const durationSeconds = Number(dur);
+        // Ignore an inconsistent early ended signal. It can happen when the
+        // iframe reports a rounded duration near the end of a video.
+        if (durationSeconds > 0 && currentSeconds < durationSeconds - 2) {
+          onProgress(currentSeconds, durationSeconds, true);
+          return;
+        }
+        onEnded(currentSeconds, durationSeconds);
+      }).catch(() => {});
     }
   }
 
   // Save on page leave / unmount as a safety net.
   React.useEffect(() => {
     isMountedRef.current = true;
-    function handleBeforeUnload() {
+    function flushProgress() {
       const p = playerRef.current;
       if (!p) return;
       // Same reasoning as the pause handler — this is the last chance to
@@ -134,11 +144,18 @@ export function VideoPlayer({ youtubeVideoId, videoUrl, startSeconds = 0, classN
       // silently dropped by the periodic-save throttle.
       safeReadTime(p).then((result) => { if (result) onProgress(result[0], result[1], true); });
     }
-    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("beforeunload", flushProgress);
+    window.addEventListener("pagehide", flushProgress);
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") flushProgress();
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("beforeunload", flushProgress);
+      window.removeEventListener("pagehide", flushProgress);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearPoll();
-      handleBeforeUnload();
+      flushProgress();
       // Set after the final save is *initiated* (safeReadTime still checks
       // isMountedRef itself before touching the player, but this ensures
       // any subsequent stray call — e.g. a late interval tick that slipped

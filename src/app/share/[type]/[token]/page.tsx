@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getShareByToken } from "@/lib/firestore/shares";
+import { createCategoryIfMissing } from "@/lib/firestore/categoriesTags";
 import { bulkAddVideosToPersonalPlaylist, createPersonalPlaylist, listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
 import { canReadSharedItem } from "@/lib/sharing";
 import { detectVideoPlatform, extractExternalVideoId, getExternalWatchAction } from "@/lib/video-platforms";
@@ -83,21 +84,23 @@ export default function SharedItemPage() {
     setAdding(true);
     try {
       let playlistId = targetPlaylistId;
+      const importedPlaylistCategoryId = share.categoryName ? await createCategoryIfMissing(share.categoryName, user.uid) : null;
       if (!playlistId) {
         if (!newPlaylistTitle.trim()) {
           toast.error("Choose a playlist or enter a new playlist name.");
           return;
         }
-        playlistId = await createPersonalPlaylist(user.uid, newPlaylistTitle.trim(), share.description || "", "private");
+        playlistId = await createPersonalPlaylist(user.uid, newPlaylistTitle.trim(), share.description || "", "private", importedPlaylistCategoryId);
       }
-      const added = await bulkAddVideosToPersonalPlaylist(user.uid, playlistId, share.videos.map((video) => ({
+      const added = await bulkAddVideosToPersonalPlaylist(user.uid, playlistId, await Promise.all(share.videos.map(async (video) => ({
         title: video.title,
         videoUrl: video.videoUrl,
         youtubeVideoId: extractExternalVideoId(video.videoUrl || ""),
         thumbnailUrl: video.thumbnailUrl || "",
         durationSeconds: video.durationSeconds || undefined,
+        categoryId: video.categoryName ? await createCategoryIfMissing(video.categoryName, user.uid) : null,
         platform: video.platform || detectVideoPlatform(video.videoUrl || "") || "generic",
-      })));
+      }))));
       toast.success(`${added} video${added === 1 ? "" : "s"} added to your playlist.`);
       setAddOpen(false);
       setTargetPlaylistId("");

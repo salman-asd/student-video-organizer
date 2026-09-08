@@ -18,7 +18,9 @@ export function calculateProgress(currentSeconds: number, durationSeconds: numbe
   const safeDuration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : 0;
 
   const percent = safeDuration > 0 ? Math.min(100, (safeCurrent / safeDuration) * 100) : 0;
-  const completed = safeDuration > 0 ? percent >= 95 : safeCurrent > 0 && safeDuration === 0;
+  // Completion is finalized by the player's ended event. Progress updates
+  // near the end must remain resumable until the video actually ends.
+  const completed = safeDuration > 0 && safeCurrent >= safeDuration;
 
   return {
     currentSeconds: safeCurrent,
@@ -57,8 +59,8 @@ export function shouldPersistProgress({
   const enoughProgress = next.percent >= 5;
 
   if (!Number.isFinite(currentSeconds) || !Number.isFinite(durationSeconds)) return false;
-  if (elapsedSinceSave >= 15000 && positionDelta >= 5) return true;
-  if (elapsedSinceSave >= 30000) return true;
+  if (elapsedSinceSave >= 60000 && positionDelta >= 5) return true;
+  if (elapsedSinceSave >= 120000) return true;
   if (currentSeconds <= 1 && previousSeconds <= 1) return false;
   if (positionDelta >= 10 && enoughProgress) return true;
   if (positionDelta >= 25) return true;

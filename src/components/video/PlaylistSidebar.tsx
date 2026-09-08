@@ -95,7 +95,7 @@ export function PlaylistSidebar({ videos, currentVideoId, playlistId, ownerId, t
 }
 
 function getVideoHref(video: Video | PersonalVideo | null, playlistId: string, ownerId?: string | null) {
-  if (!video) return ownerId ? `/playlists/${playlistId}?owner=${ownerId}` : `/suggested/${playlistId}`;
+  if (!video) return ownerId ? `/playlists/${playlistId}?owner=${ownerId}` : "/library";
   if (ownerId) return `/playlists/${playlistId}/${video.id}?owner=${ownerId}`;
   return `/video/${video.id}?playlist=${playlistId}`;
 }

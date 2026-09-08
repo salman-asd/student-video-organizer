@@ -78,9 +78,9 @@ function PersonalVideoContent() {
   }, [playlistVisible]);
 
   React.useEffect(() => {
-    previousProgressRef.current = video?.currentPositionSeconds || 0;
+    previousProgressRef.current = 0;
     lastProgressSaveRef.current = Date.now();
-  }, [video?.currentPositionSeconds, videoId]);
+  }, [videoId]);
 
   const load = React.useCallback(async () => {
     if (!ownerId) return;
@@ -144,7 +144,7 @@ function PersonalVideoContent() {
       ...v,
       currentPositionSeconds: snapshot.currentSeconds,
       watchedPercentage: snapshot.percent,
-      status: snapshot.completed ? "completed" : (v.status === "completed" ? "completed" : (snapshot.percent > 0 ? "in_progress" : "not_started")),
+      status: v.status === "completed" ? "completed" : (snapshot.percent > 0 ? "in_progress" : "not_started"),
     } : v));
 
     // Nothing worth persisting yet (player hasn't actually started).
@@ -155,13 +155,13 @@ function PersonalVideoContent() {
     previousProgressRef.current = cur;
   }
 
-  async function handleEnded(dur: number) {
+  async function handleEnded(cur: number, dur: number) {
     if (!ownerId || !video) return;
-    const snapshot = calculateProgress(dur, dur);
-    await savePersonalVideoProgress(ownerId, playlistId, video.id, dur, 100);
+    const finalSeconds = Number.isFinite(cur) && cur > 0 ? cur : dur;
+    await savePersonalVideoProgress(ownerId, playlistId, video.id, finalSeconds, 100);
     lastProgressSaveRef.current = Date.now();
-    previousProgressRef.current = dur;
-    setVideo((v) => (v ? { ...v, status: "completed", currentPositionSeconds: dur, watchedPercentage: snapshot.percent } : v));
+    previousProgressRef.current = finalSeconds;
+    setVideo((v) => (v ? { ...v, status: "completed", currentPositionSeconds: finalSeconds, watchedPercentage: 100 } : v));
 
     if (autoPlay && next) {
       toast.success(`Finished! Autoplaying "${next.title}"…`);

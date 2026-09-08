@@ -203,6 +203,16 @@ service cloud.firestore {
             optionalString(request.resource.data, 'categoryId', 200);
         }
       }
+
+      match /categories/{categoryId} {
+        allow read: if isSelf(uid) || isAdmin();
+        allow create: if (isSelf(uid) || isAdmin()) &&
+          request.resource.data.createdBy == uid &&
+          request.resource.data.name is string &&
+          request.resource.data.name.size() > 0 &&
+          optionalString(request.resource.data, 'nameLower', 200);
+        allow update, delete: if isSelf(uid) || isAdmin();
+      }
     }
 
     // ── Shared learning library ─────────────────────────────────────────
@@ -256,13 +266,6 @@ service cloud.firestore {
           request.resource.data.shareToken == shareToken &&
           request.resource.data.approvalStatus in ['accepted', 'rejected']);
       allow delete: if isSelf(resource.data.ownerUid) || isAdmin();
-    }
-
-    match /categories/{categoryId} {
-      allow read: if isSignedIn() && isActive();
-      allow write: if isAdmin() &&
-        request.resource.data.name is string &&
-        request.resource.data.name.size() > 0;
     }
 
     match /tags/{tagId} {

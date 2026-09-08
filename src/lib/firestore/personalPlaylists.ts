@@ -175,6 +175,7 @@ export async function addExistingVideoToPersonalPlaylist(
     durationSeconds?: number;
     description?: string | null;
     creator?: string | null;
+    categoryId?: string | null;
     platform?: "youtube" | "youtube-shorts" | "facebook" | "vimeo" | "generic";
   }
 ): Promise<boolean> {
@@ -520,7 +521,7 @@ export async function savePersonalVideoProgress(
   ownerId: string, playlistId: string, videoId: string,
   currentPositionSeconds: number, watchedPercentage: number
 ) {
-  const status: WatchStatus = watchedPercentage >= 95 ? "completed" : watchedPercentage > 0 ? "in_progress" : "not_started";
+  const status: WatchStatus = watchedPercentage >= 100 ? "completed" : watchedPercentage > 0 ? "in_progress" : "not_started";
   const patch: any = {
     currentPositionSeconds,
     watchedPercentage: Math.min(100, Math.round(watchedPercentage)),

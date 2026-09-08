@@ -7,7 +7,6 @@ import type { FieldValue, Timestamp } from "firebase/firestore";
  * Shared library content (created once, visible to everyone):
  *   playlists/{playlistId}
  *   playlists/{playlistId}/videos/{videoId}   (order + shared metadata)
- *   categories/{categoryId}
  *   tags/{tagId}
  *
  * Personal, per-user state (never duplicates the video itself):
@@ -19,6 +18,7 @@ import type { FieldValue, Timestamp } from "firebase/firestore";
  *   users/{uid}/bookmarks/{videoId}/items/{bookmarkId}   timestamp bookmarks
  *   users/{uid}/favoritePlaylists/{playlistId}
  *   users/{uid}/goals/{goalId}
+ *   users/{uid}/categories/{categoryId}                   user's categories
  *
  * A single global "videos" collection group is intentionally avoided —
  * videos live as a subcollection of the playlist that owns them, which keeps
@@ -70,6 +70,7 @@ export interface ShareRecord {
   shareToken: string;
   title: string;
   description?: string | null;
+  categoryName?: string | null;
   thumbnailUrl?: string | null;
   videoUrl?: string | null;
   platform?: VideoPlatform | null;
@@ -81,6 +82,7 @@ export interface ShareRecord {
     thumbnailUrl?: string | null;
     durationSeconds?: number | null;
     platform?: VideoPlatform;
+    categoryName?: string | null;
   }>;
   revokedAt: FirestoreTimeValue;
   /** Optional automatic expiry, set from ShareDialog's "Expires" control
@@ -383,7 +385,7 @@ export interface VideoWithState extends Video {
    *  (Watch Later, Favorites, Priority, Continue Watching, Dashboard) merge
    *  both tiers, and this tag tells write-handlers which Firestore path to
    *  update. Undefined is treated as "shared" for backward compatibility. */
-  source?: "suggested" | "shared" | "personal";
+  source?: "shared" | "personal";
   shareToken?: string;
   shareEntityType?: ShareEntityType;
 }
