@@ -48,6 +48,7 @@ function PersonalVideoContent() {
   const { user } = useAuth();
   const ownerId = searchParams.get("owner") || user?.uid || "";
   const isViewingOther = ownerId !== user?.uid;
+  const autoPlayRequested = searchParams.get("autoplay") === "1";
 
   const [video, setVideo] = React.useState<PersonalVideo | null>(null);
   const [playlistVideos, setPlaylistVideos] = React.useState<PersonalVideo[]>([]);
@@ -164,8 +165,9 @@ function PersonalVideoContent() {
     setVideo((v) => (v ? { ...v, status: "completed", currentPositionSeconds: finalSeconds, watchedPercentage: 100 } : v));
 
     if (autoPlay && next) {
-      toast.success(`Finished! Autoplaying "${next.title}"…`);
-      router.push(`/playlists/${playlistId}/${next.id}${suffix}`);
+      toast.success(`Completed. Starting "${next.title}" next.`);
+      const nextSuffix = isViewingOther ? `?owner=${ownerId}&autoplay=1` : "?autoplay=1";
+      router.push(`/playlists/${playlistId}/${next.id}${nextSuffix}`);
     } else {
       toast.success("Nice work — video completed!");
     }
@@ -235,6 +237,7 @@ function PersonalVideoContent() {
                 youtubeVideoId={video.youtubeVideoId}
                 videoUrl={video.videoUrl}
                 startSeconds={video.currentPositionSeconds || 0}
+                autoPlay={autoPlayRequested}
                 className={sidebarOnRight ? "max-h-[72vh]" : undefined}
                 onProgress={handleProgress}
                 onPause={handleProgress}

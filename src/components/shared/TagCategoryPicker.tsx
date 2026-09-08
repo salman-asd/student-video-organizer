@@ -18,6 +18,7 @@ export function TagCategoryPicker({
   onCategoryChange: (value: string | null) => void;
   onTagsChange: (value: string[]) => void;
 }) {
+  const pickerRef = React.useRef<HTMLDivElement>(null);
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [tags, setTags] = React.useState<Tag[]>([]);
   const [categoryQuery, setCategoryQuery] = React.useState("");
@@ -31,6 +32,17 @@ export function TagCategoryPicker({
       setTags(nextTags);
     }).catch(() => {});
   }, [userId]);
+
+  React.useEffect(() => {
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (!pickerRef.current?.contains(event.target as Node)) {
+        setCategoryOpen(false);
+        setTagOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, []);
 
   const selectedTags = tags.filter((tag) => tagIds.includes(tag.id));
   const normalizedCategoryQuery = categoryQuery.trim().toLowerCase();
@@ -79,7 +91,7 @@ export function TagCategoryPicker({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
+    <div ref={pickerRef} className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
       <div className="space-y-1.5">
         <Label>Category (optional)</Label>
         <div className="relative">
@@ -120,18 +132,27 @@ export function SearchableTagMultiSelect({
   selectedTagIds: string[];
   onChange: (value: string[]) => void;
 }) {
+  const pickerRef = React.useRef<HTMLDivElement>(null);
   const [query, setQuery] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const normalizedQuery = query.trim().toLowerCase();
   const matches = tags.filter((tag) => tag.name.toLowerCase().includes(normalizedQuery));
   const selectedTags = tags.filter((tag) => selectedTagIds.includes(tag.id));
 
+  React.useEffect(() => {
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, []);
+
   function toggleTag(tagId: string) {
     onChange(selectedTagIds.includes(tagId) ? selectedTagIds.filter((id) => id !== tagId) : [...selectedTagIds, tagId]);
   }
 
   return (
-    <div className="relative min-w-64">
+    <div ref={pickerRef} className="relative min-w-64">
       <div className="flex min-h-10 flex-wrap items-center gap-1 rounded-md border border-input bg-background p-1.5">
         {selectedTags.map((tag) => <Badge key={tag.id} variant="secondary">{tag.name}<button type="button" className="ml-1" aria-label={`Remove ${tag.name}`} onClick={() => toggleTag(tag.id)}><X className="h-3 w-3" /></button></Badge>)}
         <Input value={query} onFocus={() => setOpen(true)} onChange={(event) => { setQuery(event.target.value); setOpen(true); }} onKeyDown={(event) => { if (event.key === "Escape") setOpen(false); }} placeholder={selectedTags.length ? "Add tag" : "Search tags"} className="h-7 min-w-28 flex-1 border-0 p-0 shadow-none focus-visible:ring-0" />
