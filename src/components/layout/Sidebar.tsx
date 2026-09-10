@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ListVideo, Clock, Star, Flag, PlayCircle, BookOpenCheck, Share2,
-  ShieldCheck, Users, FolderKanban, Tags, FileJson, Youtube, Target, X,
+  ShieldCheck, Users, FolderKanban, Tags, FileJson, Youtube, Target, X, Settings, ChevronDown, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -43,6 +43,12 @@ const adminNav = [
 export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
   const { isAdmin } = useAuth();
+  const settingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
+  const [settingsOpen, setSettingsOpen] = React.useState(settingsActive);
+
+  React.useEffect(() => {
+    if (settingsActive) setSettingsOpen(true);
+  }, [settingsActive]);
 
   const content = (
     <div className="flex h-full flex-col gap-6 overflow-y-auto px-3 py-5">
@@ -56,6 +62,32 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
           <SidebarLink key={item.href} {...item} active={pathname === item.href} onClick={onClose} />
         ))}
       </nav>
+
+      <div className="border-t border-border pt-4">
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((open) => !open)}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
+            settingsActive ? "bg-primary text-primary-foreground" : "text-foreground/80 hover:bg-secondary"
+          )}
+          aria-expanded={settingsOpen}
+          aria-controls="settings-navigation"
+        >
+          <Settings className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">Settings</span>
+          <ChevronDown className={cn("h-4 w-4 transition-transform", settingsOpen && "rotate-180")} />
+        </button>
+        {settingsOpen && (
+          <div id="settings-navigation" className="ml-4 mt-1 flex flex-col gap-1 border-l border-border pl-2">
+            <SidebarLink href="/settings" label="AI Connections" icon={Sparkles} active={pathname === "/settings"} onClick={onClose} />
+            <SidebarLink href="/settings/categories" label="Categories" icon={FolderKanban} active={pathname.startsWith("/settings/categories")} onClick={onClose} />
+            {isAdmin && (
+              <SidebarLink href="/settings/tags" label="Tags" icon={Tags} active={pathname.startsWith("/settings/tags")} onClick={onClose} />
+            )}
+          </div>
+        )}
+      </div>
 
       {isAdmin && (
         <div className="mt-2 flex flex-col gap-4 border-t border-border pt-4">

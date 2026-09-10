@@ -19,12 +19,13 @@ import { getPlaylist, listVideos } from "@/lib/firestore/playlists";
 import { getUserVideoState, saveProgress, setPriority, setWatchedStatus, toggleFavorite, toggleWatchLater } from "@/lib/firestore/userVideoState";
 import { deleteNote, getNote, getSummary, saveNote, saveSummary } from "@/lib/firestore/notes";
 import { addBookmark, listBookmarks, removeBookmark } from "@/lib/firestore/bookmarks";
+import { generateStarterSummary } from "@/lib/aiSummaryClient";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { formatDuration } from "@/lib/utils";
 import { calculateProgress, shouldPersistProgress } from "@/lib/watchProgress";
 import { getExternalWatchAction } from "@/lib/video-platforms";
 import type { Bookmark, PriorityLevel, UserVideoState, Video } from "@/types";
-import { ArrowLeft, Bookmark as BookmarkIcon, PanelRightClose, PanelRightOpen, Trash2 } from "lucide-react";
+import { ArrowLeft, Bookmark as BookmarkIcon, PanelRightClose, PanelRightOpen, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { getBackToPlaylistHref, shouldShowPlaylistSidebarOnRight, shouldUsePlaylistSidebar } from "@/lib/watchPage";
 
@@ -49,6 +50,7 @@ function VideoPageContent() {
   const [state, setState] = React.useState<UserVideoState | null>(null);
   const [note, setNote] = React.useState("");
   const [summary, setSummary] = React.useState("");
+  const [generatingSummary, setGeneratingSummary] = React.useState(false);
   const [bookmarks, setBookmarks] = React.useState<Bookmark[]>([]);
   const [bookmarkLabel, setBookmarkLabel] = React.useState("");
   const [bookmarkTime, setBookmarkTime] = React.useState("");
@@ -117,6 +119,27 @@ function VideoPageContent() {
     await deleteNote(user.uid, videoId);
     setNote("");
     toast.success("Note deleted");
+  }
+
+  async function handleGenerateSummary() {
+    if (!user || !video || generatingSummary) return;
+    if (summary.trim() && !confirm("Replace your current summary with an AI-generated starter draft? This can't be undone.")) {
+      return;
+    }
+    setGeneratingSummary(true);
+    try {
+      const idToken = await user.getIdToken();
+      const draft = await generateStarterSummary(idToken, {
+        youtubeVideoId: video.youtubeVideoId || "",
+      });
+      setSummary(draft);
+      await saveSummary(user.uid, videoId, draft);
+      toast.success("Starter summary generated — feel free to edit it.");
+    } catch (error: any) {
+      toast.error(error?.message || "Couldn't generate a summary right now.");
+    } finally {
+      setGeneratingSummary(false);
+    }
   }
 
   const index = playlistVideos.findIndex((v) => v.id === videoId);
@@ -237,7 +260,7 @@ function VideoPageContent() {
               <VideoPlayer
                 youtubeVideoId={video.youtubeVideoId}
                 videoUrl={video.videoUrl}
-                startSeconds={state?.currentPositionSeconds || 0}
+                startSeconds={state?.status === "completed" ? 0 : state?.currentPositionSeconds || 0}
                 className={sidebarOnRight ? "max-h-[72vh]" : undefined}
                 onProgress={handleProgress}
                 onPause={handleProgress}
@@ -288,13 +311,28 @@ function VideoPageContent() {
               </TabsList>
 
               <TabsContent value="summary">
+                <div className="mb-2 flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={handleGenerateSummary}
+                    disabled={generatingSummary}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {generatingSummary ? "Generating…" : "Generate starter summary"}
+                  </Button>
+                </div>
                 <Textarea
                   value={summary}
                   onChange={(e) => { setSummary(e.target.value); debouncedSaveSummary(e.target.value); }}
                   placeholder="Write your own summary of this video's key ideas…"
                   className="min-h-[140px]"
                 />
-                <p className="mt-1 text-xs text-muted-foreground">Autosaves as you type. Only visible to you (and admins).</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Autosaves as you type. Only visible to you (and admins). AI uses available YouTube captions to
+                  draft a summary, key points, and topics.
+                </p>
               </TabsContent>
 
               <TabsContent value="notes">

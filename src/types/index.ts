@@ -239,6 +239,35 @@ export interface VideoSummary {
   updatedAt: Timestamp | null;
 }
 
+export type AiProvider = "gemini" | "openai" | "anthropic" | "openrouter" | "groq";
+export const AI_PROVIDERS: AiProvider[] = ["gemini", "openai", "anthropic", "openrouter", "groq"];
+export type AiConnectionStatus = "active" | "invalid" | "cooldown";
+
+export interface AiConnection {
+  id: string;
+  provider: AiProvider;
+  encryptedApiKey: string;   // server-only
+  maskedKey: string;
+  model: string;
+  label: string;
+  priority: number;
+  isActive: boolean;
+  status: AiConnectionStatus;
+  cooldownUntil: Timestamp | null;
+  lastUsedAt: Timestamp | null;
+  lastSuccessAt: Timestamp | null;
+  lastFailureAt: Timestamp | null;
+  createdAt: FirestoreTimeValue;
+  updatedAt: FirestoreTimeValue;
+}
+
+export interface AiConnectionSummary {
+  id: string; provider: AiProvider; model: string; label: string;
+  priority: number; isActive: boolean; status: AiConnectionStatus;
+  maskedKey: string; lastUsedAt: string | null; lastSuccessAt: string | null;
+  lastFailureAt: string | null; createdAt: string | null; updatedAt: string | null;
+}
+
 export interface Bookmark {
   id: string;
   videoId: string;

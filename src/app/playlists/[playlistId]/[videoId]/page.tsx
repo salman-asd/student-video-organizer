@@ -14,12 +14,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle2, Lock, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Lock, PanelRightClose, PanelRightOpen, Sparkles } from "lucide-react";
 import {
   getPersonalPlaylist, getPersonalVideo, listPersonalVideos, savePersonalVideoProgress, setPersonalVideoPriority,
   setPersonalVideoWatched, togglePersonalVideoFavorite, togglePersonalVideoWatchLater,
 } from "@/lib/firestore/personalPlaylists";
 import { deleteNote, getNote, getSummary, saveNote, saveSummary } from "@/lib/firestore/notes";
+import { generateStarterSummary } from "@/lib/aiSummaryClient";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { formatDuration } from "@/lib/utils";
 import { calculateProgress, shouldPersistProgress } from "@/lib/watchProgress";
@@ -56,6 +57,7 @@ function PersonalVideoContent() {
   const [autoPlay, setAutoPlay] = React.useState(false);
   const [note, setNote] = React.useState("");
   const [summary, setSummary] = React.useState("");
+  const [generatingSummary, setGeneratingSummary] = React.useState(false);
   const [loading, setLoading] = React.useState(true);
   const [playlistVisible, setPlaylistVisible] = React.useState(true);
   const [viewportWidth, setViewportWidth] = React.useState<number>(0);
@@ -119,6 +121,33 @@ function PersonalVideoContent() {
     await deleteNote(ownerId, noteKey(videoId));
     setNote("");
     toast.success("Note deleted");
+  }
+
+  // Deliberately restricted to the owner viewing their own video: this
+  // route always uses the *caller's* Gemini connection (see
+  // src/app/api/ai/summary/route.ts), so an admin viewing someone else's
+  // personal video (isViewingOther) would otherwise spend their own AI
+  // quota to write into a student's private summary — outside what Phase 5
+  // is meant to cover.
+  async function handleGenerateSummary() {
+    if (!user || isViewingOther || !video || generatingSummary) return;
+    if (summary.trim() && !confirm("Replace your current summary with an AI-generated starter draft? This can't be undone.")) {
+      return;
+    }
+    setGeneratingSummary(true);
+    try {
+      const idToken = await user.getIdToken();
+      const draft = await generateStarterSummary(idToken, {
+        youtubeVideoId: video.youtubeVideoId || "",
+      });
+      setSummary(draft);
+      await saveSummary(ownerId, noteKey(videoId), draft);
+      toast.success("Starter summary generated — feel free to edit it.");
+    } catch (error: any) {
+      toast.error(error?.message || "Couldn't generate a summary right now.");
+    } finally {
+      setGeneratingSummary(false);
+    }
   }
 
   const index = playlistVideos.findIndex((v) => v.id === videoId);
@@ -236,7 +265,7 @@ function PersonalVideoContent() {
               <VideoPlayer
                 youtubeVideoId={video.youtubeVideoId}
                 videoUrl={video.videoUrl}
-                startSeconds={video.currentPositionSeconds || 0}
+                startSeconds={video.status === "completed" ? 0 : video.currentPositionSeconds || 0}
                 autoPlay={autoPlayRequested}
                 className={sidebarOnRight ? "max-h-[72vh]" : undefined}
                 onProgress={handleProgress}
@@ -301,12 +330,31 @@ function PersonalVideoContent() {
                 <TabsTrigger value="notes">Notes</TabsTrigger>
               </TabsList>
               <TabsContent value="summary">
+                {!isViewingOther && (
+                  <div className="mb-2 flex justify-end">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={handleGenerateSummary}
+                      disabled={generatingSummary}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      {generatingSummary ? "Generating…" : "Generate starter summary"}
+                    </Button>
+                  </div>
+                )}
                 <Textarea
                   value={summary}
                   onChange={(e) => { setSummary(e.target.value); debouncedSaveSummary(e.target.value); }}
                   placeholder="Write your own summary…"
                   className="min-h-[140px]"
                 />
+                {!isViewingOther && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    AI uses available YouTube captions to draft a summary, key points, and topics.
+                  </p>
+                )}
               </TabsContent>
               <TabsContent value="notes">
                 <div className="space-y-3">

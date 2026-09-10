@@ -213,6 +213,17 @@ service cloud.firestore {
           optionalString(request.resource.data, 'nameLower', 200);
         allow update, delete: if isSelf(uid) || isAdmin();
       }
+
+      // AI provider connections (encrypted API keys). Denied to the client
+      // SDK entirely, even for the owner — defense in depth so
+      // encryptedApiKey can never round-trip through client code, by
+      // accident or via a future client-side query bug. All access goes
+      // through the authenticated /api/ai/connections* routes, which use
+      // the Admin SDK (bypasses these rules) and only ever return a masked
+      // projection. See src/lib/server/aiEncryption.ts.
+      match /aiConnections/{connectionId} {
+        allow read, write: if false;
+      }
     }
 
     // ── Shared learning library ─────────────────────────────────────────
