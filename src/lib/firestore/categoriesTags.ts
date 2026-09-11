@@ -67,3 +67,12 @@ export async function createTagIfMissing(name: string, createdBy: string): Promi
 export async function deleteTag(id: string) {
   await deleteDoc(doc(db, "tags", id));
 }
+
+export async function updateTag(id: string, name: string) {
+  const cleanName = name.trim();
+  if (!cleanName) throw new Error("Tag name is required.");
+  const nameLower = cleanName.toLowerCase();
+  const existing = await getDocs(query(collection(db, "tags"), where("nameLower", "==", nameLower)));
+  if (existing.docs.some((item) => item.id !== id)) throw new Error("That tag already exists.");
+  await updateDoc(doc(db, "tags", id), { name: cleanName, nameLower });
+}

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download, FileVideo, ListVideo, Menu, Search, LogOut, ShieldCheck, User as UserIcon } from "lucide-react";
+import { Download, FileVideo, ListVideo, Menu, Search, LogOut, Settings, ShieldCheck, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -127,6 +127,9 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => router.push("/dashboard")}>
               <UserIcon className="h-4 w-4" /> My Dashboard
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/settings")}>
+              <Settings className="h-4 w-4" /> Settings
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleLogout}>
               <LogOut className="h-4 w-4" /> Log out

@@ -25,16 +25,15 @@ to **Netlify's free hosting**.
   JSON import, YouTube playlist import
 - Drag-and-drop reordering (dnd-kit) for playlist videos, Watch Later, and
   Priority lists, persisted to Firestore
+- Transcript-backed AI summaries with Gemini, OpenAI, Anthropic, OpenRouter, or Groq connections
 - Light/dark/system theme (stored locally via `next-themes`)
 - Responsive layout: collapsible sidebar, 4/3/2/1-column video grid
 
 ## 2. What's intentionally NOT included (per spec)
 
 No Firebase Storage, no Cloud Functions, no separate backend, no paid
-services of any kind. No video upload/hosting/transcoding. AI
-summaries/quizzes/flashcards, spaced repetition, and PWA/offline support are
-left as extension points (see `src/types/index.ts` for where they'd plug in)
-but are not implemented in this MVP.
+services of any kind. No video upload/hosting/transcoding. Quizzes, flashcards,
+spaced repetition, and PWA/offline support remain extension points.
 
 ---
 
@@ -139,6 +138,19 @@ Get a key at https://console.cloud.google.com/apis/credentials (enable
 "YouTube Data API v3" — this stays within Google's free quota for normal use)
 and set `YOUTUBE_API_KEY` in your environment. Without it, admins can still
 import via the "Import JSON" page or by adding videos one at a time.
+
+### AI summaries
+
+Set `AI_CONNECTION_ENCRYPTION_KEY` to a base64-encoded 32-byte server-only key.
+Users add provider keys from Settings → AI Connections. Summary generation uses
+available YouTube captions only and does not download video files. If captions
+are unavailable, the UI reports that the transcript cannot be retrieved.
+OpenRouter models can be configured with a model such as
+`meta-llama/llama-3.1-8b-instruct:free`, subject to OpenRouter's current
+availability and limits. Groq models can be configured with a model such as
+`llama-3.3-70b-versatile`, subject to Groq's current free-tier limits. The speech-to-text toggle is stored as an opt-in
+preference; an audio transcription service must still be configured before it
+can process videos without captions.
 
 ---
 
