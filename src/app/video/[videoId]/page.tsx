@@ -167,6 +167,7 @@ function VideoPageContent() {
         playlistId,
         title: video.title,
         description: video.description || "",
+        summary: summary || null,
       });
       setQuizQuestions(response.questions || []);
       setSelectedAnswers({});

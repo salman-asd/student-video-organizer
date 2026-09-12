@@ -213,6 +213,30 @@ Turn the app from a collection of learning tools into a focused personal learnin
 
 ---
 
+## Phase 9 — Launch readiness and trust
+
+### Step 26: Validate the main learning loop end-to-end
+- Confirm the user journey works from onboarding to roadmap to video to goal review.
+- Make sure empty states, resume flows, and first-time-user paths are intentional.
+- Reduce the chance that a new user falls into a broken or confusing state.
+
+### Step 27: Add trust and reliability checks
+- Validate AI outputs before they are shown to the user.
+- Show graceful fallbacks when summaries, quizzes, or suggestions fail.
+- Make model errors feel recoverable instead of alarming.
+
+### Step 28: Strengthen retention and consistency signals
+- Highlight streaks, momentum, and recent wins in the dashboard.
+- Encourage quick wins: resume, bookmark, complete a quiz, update a goal.
+- Keep the design motivating without creating guilt or pressure.
+
+### Step 29: Prepare for launch quality
+- Audit the app for first-run clarity, route stability, and mobile usability.
+- Confirm analytics hooks exist for onboarding conversion, completion, and retention.
+- Review security/privacy boundaries for notes, generated summaries, and roadmap data.
+
+---
+
 ## Final product direction
 The app should feel like a personal learning operating system for each user:
 - learn what they care about

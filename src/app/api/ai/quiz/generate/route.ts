@@ -41,7 +41,8 @@ export async function POST(req: NextRequest) {
   const ownerId = typeof b.ownerId === "string" ? b.ownerId.trim() : undefined;
   const title = typeof b.title === "string" ? b.title : undefined;
   const description = typeof b.description === "string" ? b.description : null;
-  const sourceHash = buildVideoSourceHash(title || "", description);
+  const summary = typeof b.summary === "string" ? b.summary : null;
+  const sourceHash = buildVideoSourceHash(title || "", description, summary);
 
   let cachedQuiz;
   if (ownerId && playlistId && videoId) {
@@ -54,29 +55,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ questions: cachedQuiz.questions }, { headers: { "Cache-Control": "private, no-store" } });
   }
 
-  let transcript: string;
-  try {
-    transcript = await getYouTubeTranscript(b.youtubeVideoId.trim());
-  } catch (error) {
-    if (error instanceof TranscriptUnavailableError) {
-      const preferences = await getAiPreferences(uid).catch(() => ({ speechToTextEnabled: false }));
-      return NextResponse.json(
-        {
-          error: preferences.speechToTextEnabled
-            ? "No YouTube transcript is available. Speech-to-text fallback is enabled, but no transcription service is configured yet."
-            : "No YouTube transcript or captions are available. Enable speech-to-text fallback in AI Settings once a transcription service is configured.",
-        },
-        { status: 422 }
-      );
+  let transcript: string | undefined;
+  if (!summary || !summary.trim()) {
+    try {
+      transcript = await getYouTubeTranscript(b.youtubeVideoId.trim());
+    } catch (error) {
+      if (error instanceof TranscriptUnavailableError) {
+        const preferences = await getAiPreferences(uid).catch(() => ({ speechToTextEnabled: false }));
+        return NextResponse.json(
+          {
+            error: preferences.speechToTextEnabled
+              ? "No YouTube transcript is available. Speech-to-text fallback is enabled, but no transcription service is configured yet."
+              : "No YouTube transcript or captions are available. Enable speech-to-text fallback in AI Settings once a transcription service is configured.",
+          },
+          { status: 422 }
+        );
+      }
+      return NextResponse.json({ error: "Unable to retrieve the YouTube transcript." }, { status: 502 });
     }
-    return NextResponse.json({ error: "Unable to retrieve the YouTube transcript." }, { status: 502 });
   }
 
   try {
     const questions = await withAiConnection(uid, async (apiKey, provider, model) => {
       return await generateVideoQuiz(
         { provider, apiKey, model },
-        { title, description, transcript }
+        { title, description, transcript, summary }
       );
     });
 

@@ -37,16 +37,17 @@ function renderBlock(block: string): string {
   }
 
   if (nonListLines.length > 0) {
-    sections.push(renderParagraph(nonListLines.join("<br />")));
+    sections.push(renderParagraph(nonListLines));
   }
 
   return sections.join("");
 }
 
-function renderParagraph(content: string): string {
-  const cleaned = content.trim();
-  if (!cleaned) return "";
-  return `<p>${markdownInlineToHtml(cleaned)}</p>`;
+function renderParagraph(content: string | string[]): string {
+  const lines = Array.isArray(content) ? content : [content];
+  const cleaned = lines.map((line) => line.trim()).filter(Boolean);
+  if (!cleaned.length) return "";
+  return `<p>${cleaned.map((line) => markdownInlineToHtml(line)).join("<br />")}</p>`;
 }
 
 function isMarkdownHeading(value: string): boolean {

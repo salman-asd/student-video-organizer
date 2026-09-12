@@ -41,7 +41,8 @@ export interface QuizQuestion {
 export interface QuizVideoInput {
   title?: string;
   description?: string | null;
-  transcript: string;
+  transcript?: string;
+  summary?: string | null;
 }
 
 /** Input for turning a learning roadmap's steps into a handful of candidate

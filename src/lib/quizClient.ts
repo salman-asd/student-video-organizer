@@ -7,6 +7,7 @@ export interface GenerateQuizInput {
   ownerId?: string;
   title?: string;
   description?: string | null;
+  summary?: string | null;
 }
 
 export async function generateVideoQuizForCurrentVideo(

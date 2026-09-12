@@ -39,26 +39,51 @@ export function buildGoalSuggestionPrompt(input: GoalSuggestionInput): string {
   ].join("\n");
 }
 
+function stripHtmlToPlainText(value?: string | null): string {
+  if (!value) return "(none)";
+  return value
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<li>/gi, "\n- ")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim() || "(none)";
+}
+
 export function buildQuizPrompt(video: QuizVideoInput): string {
+  const summaryText = stripHtmlToPlainText(video.summary);
+  const transcriptText = (video.transcript || "").trim() || "(no transcript)";
+
   return [
     "You are generating a short comprehension quiz for a learning video.",
-    "Using only the information available in the transcript and title/description below, create exactly 5 multiple-choice questions.",
+    "Use the strongest available source in this order: 1) saved summary, 2) transcript/captions, 3) title and description as secondary context only.",
+    "Do not invent facts, names, dates, or claims that are not grounded in the content source. Title/description should only fill gaps when the summary/transcript are missing or incomplete.",
+    "Create exactly 5 multiple-choice questions.",
     "Return valid JSON only. The root must be an array of objects with this exact shape:",
     "[{\"id\":\"q1\",\"prompt\":\"question text\",\"options\":[{\"id\":\"a\",\"text\":\"option text\"},{\"id\":\"b\",\"text\":\"option text\"}],\"correctOptionId\":\"a\",\"explanation\":\"why the answer is correct\"}]",
     "Rules:",
-    "- Do not invent facts, names, dates, or claims that are not grounded in the content.",
     "- Use 4 options per question, labeled a, b, c, d.",
     "- Each question should test a clear learning objective from the material.",
     "- Include a brief explanation for the correct answer.",
     "- Ensure the JSON array contains only plain text values with no markdown fences.",
+    "",
+    "Saved summary:",
+    summaryText,
+    "",
+    "Transcript:",
+    transcriptText,
     "",
     "Title:",
     video.title || "(no title)",
     "",
     "Description:",
     video.description || "(no description)",
-    "",
-    "Transcript:",
-    video.transcript,
   ].join("\n");
 }

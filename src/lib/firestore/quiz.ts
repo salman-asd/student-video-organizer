@@ -2,8 +2,8 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { QuizQuestion, VideoQuizCache } from "@/types";
 
-export function buildVideoSourceHash(title: string, description?: string | null): string {
-  const text = `${(title || "").trim()}\n${(description || "").trim()}`;
+export function buildVideoSourceHash(title: string, description?: string | null, summary?: string | null): string {
+  const text = `${(title || "").trim()}\n${(description || "").trim()}\n${(summary || "").trim()}`;
   let hash = 2166136261;
   for (let i = 0; i < text.length; i += 1) {
     hash ^= text.charCodeAt(i);
