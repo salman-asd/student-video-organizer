@@ -20,6 +20,7 @@ const studentNav = [
   { href: "/priority", label: "Priority", icon: Flag },
   { href: "/favorites", label: "Favorites", icon: Star },
   { href: "/goals", label: "Goals", icon: Target },
+  { href: "/roadmap", label: "Roadmap", icon: BookOpenCheck },
 ];
 
 const adminNav = [
@@ -34,6 +35,7 @@ const adminNav = [
   {
     section: "Management",
     items: [
+      { href: "/admin/ai-settings", label: "AI Settings", icon: Sparkles },
       { href: "/admin/import-json", label: "Import JSON", icon: FileJson },
       { href: "/admin/import-youtube", label: "Import YouTube Playlist", icon: Youtube },
     ],

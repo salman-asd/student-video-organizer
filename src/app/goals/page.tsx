@@ -22,7 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { addGoal, listGoals, removeGoal, toggleGoal, updateGoal, type GoalInput } from "@/lib/firestore/goals";
 import { listPersonalPlaylists, listAllPersonalVideos } from "@/lib/firestore/personalPlaylists";
 import {
-  describeDueDate, isGoalOverdue, getGoalLinkedPlaylists, getGoalLinkedVideos, calculateGoalProgress,
+  describeDueDate, isGoalOverdue, getGoalLinkedPlaylists, getGoalLinkedVideos, calculateGoalProgress, computeDailyPace,
 } from "@/lib/goalUtils";
 import { todayKey } from "@/lib/utils";
 import type { Goal, PersonalPlaylist, PersonalVideo, PriorityLevel } from "@/types";
@@ -299,6 +299,7 @@ function GoalsContent() {
               const linkedVideos = getGoalLinkedVideos(g);
               const progress = calculateGoalProgress(g, allVideos);
               const progressPercent = progress.total > 0 ? Math.round((progress.watched / progress.total) * 100) : 0;
+              const pace = computeDailyPace(g, allVideos, new Date(`${today}T12:00:00`));
               const hasLinkedContent = linkedPlaylists.length > 0 || linkedVideos.length > 0;
 
               return (
@@ -354,6 +355,13 @@ function GoalsContent() {
                               <span>{progress.watched} of {progress.total} watched ({progressPercent}%)</span>
                             </div>
                             <Progress value={progressPercent} className="h-1.5" />
+                            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                              <span>Daily pace</span>
+                              <span className={pace.status === "overdue" ? "text-destructive" : pace.status === "behind" ? "text-amber-600" : "text-emerald-600"}>
+                                {pace.status === "ahead" ? "Ahead" : pace.status === "on-track" ? "On track" : pace.status === "behind" ? "Behind" : "Overdue"}
+                                {pace.videosPerDayNeeded > 0 ? ` · ${pace.videosPerDayNeeded}/day` : ""}
+                              </span>
+                            </div>
                           </div>
                         )}
                       </div>

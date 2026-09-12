@@ -121,20 +121,21 @@ service cloud.firestore {
 
       // Size-guarded so a runaway autosave loop or a large paste can't
       // create multi-megabyte documents that blow through the free-tier
-      // storage quota. 20,000 chars is well beyond anything a student
-      // would reasonably type as a note/summary.
+      // storage quota. 50,000 chars is still ample for rich-text HTML
+      // summaries and notes while staying far above any normal student
+      // typing volume.
       match /notes/{videoId} {
         allow read: if isSelf(uid) || isAdmin();
         allow create, update: if (isSelf(uid) || isAdmin()) &&
           request.resource.data.content is string &&
-          request.resource.data.content.size() <= 20000;
+          request.resource.data.content.size() <= 50000;
         allow delete: if isSelf(uid) || isAdmin();
       }
       match /summaries/{videoId} {
         allow read: if isSelf(uid) || isAdmin();
         allow create, update: if (isSelf(uid) || isAdmin()) &&
           request.resource.data.content is string &&
-          request.resource.data.content.size() <= 20000;
+          request.resource.data.content.size() <= 50000;
         allow delete: if isSelf(uid) || isAdmin();
       }
 
@@ -163,6 +164,17 @@ service cloud.firestore {
           optionalString(request.resource.data, 'notes', 5000) &&
           optionalNullableEnum(request.resource.data, 'priority', ['high', 'medium', 'low']) &&
           optionalBool(request.resource.data, 'completed');
+      }
+
+      match /quizAttempts/{attemptId} {
+        allow read: if isSelf(uid) || isAdmin();
+        allow create, update: if (isSelf(uid) || isAdmin()) &&
+          request.resource.data.videoId is string &&
+          request.resource.data.score is number &&
+          request.resource.data.totalQuestions is number &&
+          optionalString(request.resource.data, 'categoryId', 200) &&
+          optionalTimestamp(request.resource.data, 'completedAt');
+        allow delete: if isSelf(uid) || isAdmin();
       }
 
       match /watchProgress/{videoId} {
@@ -214,6 +226,17 @@ service cloud.firestore {
         allow update, delete: if isSelf(uid) || isAdmin();
       }
 
+      match /learningRoadmaps/{roadmapId} {
+        allow read: if isSelf(uid) || isAdmin();
+        allow create, update: if isSelf(uid) &&
+          request.resource.data.categoryId is string &&
+          request.resource.data.level in ['basic', 'intermediate', 'advanced'] &&
+          request.resource.data.steps is list &&
+          optionalTimestamp(request.resource.data, 'adoptedFromTemplateAt') &&
+          optionalTimestamp(request.resource.data, 'updatedAt');
+        allow delete: if isSelf(uid) || isAdmin();
+      }
+
       // AI provider connections (encrypted API keys). Denied to the client
       // SDK entirely, even for the owner — defense in depth so
       // encryptedApiKey can never round-trip through client code, by
@@ -224,6 +247,41 @@ service cloud.firestore {
       match /aiConnections/{connectionId} {
         allow read, write: if false;
       }
+
+      match /aiQuota/{quotaId} {
+        allow read: if isSelf(uid) || isAdmin();
+        allow write: if false;
+      }
+    }
+
+    match /roadmapTemplates/{templateId} {
+      allow read: if isSignedIn() && isActive();
+      allow write: if false;
+    }
+
+    match /categorySuggestions/{suggestionId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && isActive() &&
+        request.resource.data.suggestedName is string &&
+        request.resource.data.suggestedName.size() > 0 &&
+        request.resource.data.suggestedBy == request.auth.uid &&
+        request.resource.data.status == 'pending';
+      allow update: if isAdmin() &&
+        request.resource.data.status in ['pending', 'approved', 'rejected'];
+      allow delete: if isAdmin();
+    }
+
+    match /systemAiSettings/{docId} {
+      allow read: if isSignedIn() && isActive();
+      allow write: if false;
+    }
+
+    // Admin-owned AI provider connections for the shared system tier.
+    // These are server-only, admin-SDK-backed documents with the same
+    // encrypted-key shape as the user-owned equivalents; clients and
+    // students never read or write them directly.
+    match /systemAiConnections/{connectionId} {
+      allow read, write: if false;
     }
 
     // ── Shared learning library ─────────────────────────────────────────
@@ -246,6 +304,20 @@ service cloud.firestore {
       match /videoTags/{videoTagId} {
         allow read: if isSignedIn() && isActive();
         allow write: if isAdmin();
+      }
+    }
+
+    match /playlists/{playlistId}/videos/{videoId} {
+      match /quiz {
+        allow read: if isSignedIn() && isActive();
+        allow write: if false;
+      }
+    }
+
+    match /users/{uid}/personalPlaylists/{playlistId}/videos/{videoId} {
+      match /quiz {
+        allow read: if isSelf(uid) || isAdmin();
+        allow write: if false;
       }
     }
 

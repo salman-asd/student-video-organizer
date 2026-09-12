@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { adminAuth } from "@/lib/server/firebase-admin";
+import { adminAuth, adminDb } from "@/lib/server/firebase-admin";
 
 /**
  * Verifies the "Authorization: Bearer <idToken>" header against Firebase
@@ -18,6 +18,19 @@ export async function requireAuthenticatedUid(req: NextRequest): Promise<string 
   try {
     const decoded = await adminAuth.verifyIdToken(match[1]);
     return decoded.uid;
+  } catch {
+    return null;
+  }
+}
+
+export async function requireAdminUid(req: NextRequest): Promise<string | null> {
+  const uid = await requireAuthenticatedUid(req);
+  if (!uid) return null;
+
+  try {
+    const snap = await adminDb.collection("users").doc(uid).get();
+    const role = snap.exists ? snap.data()?.role : null;
+    return role === "admin" ? uid : null;
   } catch {
     return null;
   }

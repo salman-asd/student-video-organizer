@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AiConnectionDialog } from "@/components/settings/AiConnectionDialog";
@@ -15,9 +16,14 @@ import {
   deleteAiConnection, listAiConnections, reorderAiConnections, testAiConnection, updateAiConnection,
 } from "@/lib/aiConnectionsClient";
 import { getAiPreferences, updateAiPreferences, type AiPreferences } from "@/lib/aiPreferencesClient";
-import type { AiConnectionSummary } from "@/types";
-import { Plus, Pencil, Trash2, Sparkles, GripVertical } from "lucide-react";
+import { createCategory, listCategories } from "@/lib/firestore/categoriesTags";
+import { getDefaultSubcategoriesForMain, validateCustomInterestName } from "@/lib/defaultTaxonomy";
+import { normalizeUserInterests } from "@/lib/userInterests";
+import type { AiConnectionSummary, Category, UserInterest } from "@/types";
+import { Plus, Pencil, Trash2, Sparkles, GripVertical, Check } from "lucide-react";
 import { toast } from "sonner";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 const PROVIDER_LABELS: Record<string, string> = { gemini: "Gemini", openai: "OpenAI", anthropic: "Anthropic", openrouter: "OpenRouter", groq: "Groq" };
 
@@ -38,20 +44,36 @@ function SettingsContent() {
   const [editingConnection, setEditingConnection] = React.useState<AiConnectionSummary | null>(null);
   const [aiPreferences, setAiPreferences] = React.useState<AiPreferences>({ speechToTextEnabled: false });
   const [savingPreference, setSavingPreference] = React.useState(false);
+  const [interestCategories, setInterestCategories] = React.useState<Category[]>([]);
+  const [selectedInterestIds, setSelectedInterestIds] = React.useState<string[]>([]);
+  const [customInterestInput, setCustomInterestInput] = React.useState("");
+  const [savingInterests, setSavingInterests] = React.useState(false);
+  const [savingCustomInterest, setSavingCustomInterest] = React.useState(false);
+
+  const selectedCategories = React.useMemo(
+    () => interestCategories.filter((category) => selectedInterestIds.includes(category.id)),
+    [interestCategories, selectedInterestIds]
+  );
 
   const load = React.useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
       const idToken = await user.getIdToken();
-      const [nextConnections, nextPreferences] = await Promise.all([
+      const [nextConnections, nextPreferences, nextCategories, profileSnap] = await Promise.all([
         listAiConnections(idToken),
         getAiPreferences(idToken),
+        listCategories(user.uid),
+        getDoc(doc(db, "users", user.uid)),
       ]);
+      const savedInterests = normalizeUserInterests(((profileSnap.data() as any)?.interests ?? []) as UserInterest[]);
+
       setConnections(nextConnections);
       setAiPreferences(nextPreferences);
+      setInterestCategories(nextCategories);
+      setSelectedInterestIds(savedInterests.map((item) => item.categoryId));
     } catch (error: any) {
-      toast.error(error?.message || "Failed to load your AI connections.");
+      toast.error(error?.message || "Failed to load your settings.");
     } finally {
       setLoading(false);
     }
@@ -70,6 +92,41 @@ function SettingsContent() {
       toast.error(error?.message || "Unable to update AI preferences.");
     } finally {
       setSavingPreference(false);
+    }
+  }
+
+  async function saveInterests() {
+    if (!user) return;
+    setSavingInterests(true);
+    try {
+      const interests = normalizeUserInterests(selectedInterestIds.map((categoryId) => ({ categoryId, level: null })));
+      await updateDoc(doc(db, "users", user.uid), { interests });
+      toast.success("Your interests were saved.");
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to save your interests.");
+    } finally {
+      setSavingInterests(false);
+    }
+  }
+
+  async function addCustomInterest() {
+    if (!user) return;
+    const validation = validateCustomInterestName(customInterestInput);
+    if (!validation.valid) {
+      toast.error(validation.reason || "Topic name is invalid.");
+      return;
+    }
+
+    setSavingCustomInterest(true);
+    try {
+      const categoryId = await createCategory(validation.normalized, user.uid);
+      setSelectedInterestIds((prev) => (prev.includes(categoryId) ? prev : [...prev, categoryId]));
+      setCustomInterestInput("");
+      toast.success(`${validation.normalized} was added to your interests.`);
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to add this topic.");
+    } finally {
+      setSavingCustomInterest(false);
     }
   }
 
@@ -170,6 +227,80 @@ function SettingsContent() {
 
         <Card>
           <CardContent className="space-y-4 p-4">
+            <div>
+              <h2 className="font-display text-base font-semibold">Learning interests</h2>
+              <p className="text-sm text-muted-foreground">Choose your main learning topics and refine them with the most relevant subtopics.</p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {interestCategories.length === 0 && <p className="text-sm text-muted-foreground">No categories yet — create some in the category settings first.</p>}
+              {interestCategories.map((category) => {
+                const active = selectedInterestIds.includes(category.id);
+                return (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => setSelectedInterestIds((prev) => active ? prev.filter((id) => id !== category.id) : [...prev, category.id])}
+                    className={`rounded-full border px-3 py-1.5 text-sm transition ${active ? "border-accent bg-accent/10 text-accent" : "border-border bg-background text-foreground hover:border-accent/50"}`}
+                  >
+                    {active ? <span className="inline-flex items-center gap-1.5"><Check className="h-3.5 w-3.5" /> {category.name}</span> : category.name}
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedCategories.length > 0 && (
+              <div className="space-y-3 rounded-xl border border-dashed border-border bg-muted/30 p-3">
+                <p className="text-sm font-medium text-foreground">Suggested subtopics</p>
+                {selectedCategories.map((category) => {
+                  const subtopics = getDefaultSubcategoriesForMain(category.name);
+                  return (
+                    <div key={category.id} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{category.name}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {subtopics.length === 0 ? (
+                          <span className="text-xs text-muted-foreground">No default subtopics for this topic yet.</span>
+                        ) : (
+                          subtopics.map((subtopic) => (
+                            <button
+                              key={`${category.id}-${subtopic}`}
+                              type="button"
+                              onClick={() => setCustomInterestInput(subtopic)}
+                              className="rounded-full border border-border bg-background px-2.5 py-1.5 text-xs text-foreground transition hover:border-accent hover:text-accent"
+                            >
+                              {subtopic}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={customInterestInput}
+                onChange={(event) => setCustomInterestInput(event.target.value)}
+                placeholder="Add a custom topic"
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void addCustomInterest();
+                }}
+              />
+              <Button onClick={() => void addCustomInterest()} disabled={savingCustomInterest || !customInterestInput.trim()}>
+                {savingCustomInterest ? "Adding…" : "Add topic"}
+              </Button>
+            </div>
+
+            <Button onClick={() => void saveInterests()} disabled={savingInterests || !user}>
+              {savingInterests ? "Saving…" : "Save interests"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-4 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-start gap-2.5">
                 <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
@@ -177,7 +308,7 @@ function SettingsContent() {
                   <h2 className="font-display text-base font-semibold">AI Connections</h2>
                   <p className="text-sm text-muted-foreground">
                     Add your own AI provider key so Study Lamp can generate a starter summary draft for you. Your
-                    key is encrypted and stored on Study Lamp's server — it's never sent to any browser, and
+                    key is encrypted and stored on Study Lamp&apos;s server — it&apos;s never sent to any browser, and
                     AI requests are made from the server, not your device.
                   </p>
                 </div>

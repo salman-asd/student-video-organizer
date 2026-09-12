@@ -13,7 +13,7 @@ import { toast } from "sonner";
 type Mode = "login" | "register" | "reset";
 
 export default function LoginPage() {
-  const { user, loading, login, register, resetPassword } = useAuth();
+  const { user, loading, profile, needsOnboarding, login, register, resetPassword } = useAuth();
   const router = useRouter();
   const [mode, setMode] = React.useState<Mode>("login");
   const [email, setEmail] = React.useState("");
@@ -22,8 +22,10 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = React.useState(false);
 
   React.useEffect(() => {
-    if (!loading && user) router.replace("/dashboard");
-  }, [loading, user, router]);
+    if (!loading && user) {
+      router.replace(needsOnboarding || !profile ? "/onboarding" : "/dashboard");
+    }
+  }, [loading, user, profile, needsOnboarding, router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,11 +34,9 @@ export default function LoginPage() {
       if (mode === "login") {
         await login(email, password);
         toast.success("Welcome back!");
-        router.replace("/dashboard");
       } else if (mode === "register") {
         await register(email, password, name || email.split("@")[0]);
         toast.success("Account created — welcome!");
-        router.replace("/dashboard");
       } else {
         await resetPassword(email);
         toast.success("Password reset email sent");

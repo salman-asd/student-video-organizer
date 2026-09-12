@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticatedUid } from "@/lib/server/requireAuth";
-import { getActiveConnectionRaw, recordConnectionFailure, recordTestResult } from "@/lib/server/aiConnections";
-import { decryptApiKey } from "@/lib/server/aiEncryption";
 import { generateVideoSummary, AiServiceError, type AiErrorCode } from "@/lib/ai/aiService";
 import { getYouTubeTranscript, TranscriptUnavailableError } from "@/lib/ai/transcript";
 import { getAiPreferences } from "@/lib/server/aiPreferences";
+import { withAiConnection } from "@/lib/server/resolveAiConnection";
 
 const TITLE_MAX_LENGTH = 300;
 const DESCRIPTION_MAX_LENGTH = 5000;
@@ -80,68 +79,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unable to retrieve the YouTube transcript." }, { status: 502 });
   }
 
-  const fallbackCodes = new Set<AiServiceError["code"]>([
-    "auth",
-    "rate_limit",
-    "timeout",
-    "network",
-    "server_error",
-  ]);
-  let lastError: AiServiceError | null = null;
-  const attemptedConnectionIds = new Set<string>();
+  try {
+    const title = typeof b.title === "string" ? b.title : undefined;
+    const description = b.description === null ? null : typeof b.description === "string" ? b.description : undefined;
 
-  while (true) {
-    const connection = await getActiveConnectionRaw(uid, undefined, attemptedConnectionIds);
-    if (!connection) {
-      if (lastError) {
-        return NextResponse.json({ error: lastError.message }, { status: STATUS_BY_CODE[lastError.code] });
-      }
-      return NextResponse.json(
-        { error: "No active AI connection found. Add one in AI Settings first." },
-        { status: 400 }
+    const summary = await withAiConnection(uid, async (apiKey, provider, model) => {
+      return await generateVideoSummary(
+        { provider, apiKey, model },
+        { title, description, transcript }
       );
-    }
+    });
 
-    attemptedConnectionIds.add(connection.id);
-    let apiKey: string;
-    try {
-      apiKey = decryptApiKey(connection.encryptedApiKey);
-    } catch (err) {
-      console.error("Failed to decrypt AI connection for summary generation", err);
-      return NextResponse.json(
-        { error: "Could not read your AI connection's stored key. Try re-adding it in AI Settings." },
-        { status: 500 }
-      );
+    return NextResponse.json({ summary }, { headers: { "Cache-Control": "private, no-store" } });
+  } catch (err: any) {
+    if (err instanceof AiServiceError) {
+      return NextResponse.json({ error: err.message }, { status: STATUS_BY_CODE[err.code] });
     }
-
-    try {
-      const summary = await generateVideoSummary(
-        { provider: connection.provider, apiKey, model: connection.model },
-        { title: b.title, description: (b.description as string | undefined) ?? null, transcript }
-      );
-      await recordTestResult(uid, connection.id, { success: true }).catch((err) => {
-        console.error("Failed to record AI connection usage", err);
-      });
-      return NextResponse.json({ summary }, { headers: { "Cache-Control": "private, no-store" } });
-    } catch (err: any) {
-      if (!(err instanceof AiServiceError)) {
-        console.error("Unexpected error generating AI summary", err);
-        return NextResponse.json({ error: "Something went wrong generating a summary." }, { status: 500 });
-      }
-      console.error("AI summary provider failed", {
-        provider: connection.provider,
-        code: err.code,
-        message: err.message,
-      });
-      lastError = err;
-      if (!fallbackCodes.has(err.code)) {
-        return NextResponse.json({ error: err.message }, { status: STATUS_BY_CODE[err.code] });
-      }
-      if (err.code === "auth" || err.code === "rate_limit") {
-        await recordConnectionFailure(uid, connection.id, err.code).catch((recordError) => {
-          console.error("Failed to record AI connection failure", recordError);
-        });
-      }
-    }
+    console.error("Unexpected error generating AI summary", err);
+    return NextResponse.json({ error: "Something went wrong generating a summary." }, { status: 500 });
   }
 }

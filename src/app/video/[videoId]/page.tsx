@@ -10,9 +10,10 @@ import { VideoActionsBar } from "@/components/video/VideoActionsBar";
 import { PlaylistSidebar } from "@/components/video/PlaylistSidebar";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { getPlaylist, listVideos } from "@/lib/firestore/playlists";
@@ -20,11 +21,13 @@ import { getUserVideoState, saveProgress, setPriority, setWatchedStatus, toggleF
 import { deleteNote, getNote, getSummary, saveNote, saveSummary } from "@/lib/firestore/notes";
 import { addBookmark, listBookmarks, removeBookmark } from "@/lib/firestore/bookmarks";
 import { generateStarterSummary } from "@/lib/aiSummaryClient";
+import { generateVideoQuizForCurrentVideo } from "@/lib/quizClient";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 import { formatDuration } from "@/lib/utils";
+import { toSummaryHtml } from "@/lib/summaryHtml";
 import { calculateProgress, shouldPersistProgress } from "@/lib/watchProgress";
 import { getExternalWatchAction } from "@/lib/video-platforms";
-import type { Bookmark, PriorityLevel, UserVideoState, Video } from "@/types";
+import type { Bookmark, PriorityLevel, QuizQuestion, UserVideoState, Video } from "@/types";
 import { ArrowLeft, Bookmark as BookmarkIcon, PanelRightClose, PanelRightOpen, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { getBackToPlaylistHref, shouldShowPlaylistSidebarOnRight, shouldUsePlaylistSidebar } from "@/lib/watchPage";
@@ -51,6 +54,11 @@ function VideoPageContent() {
   const [note, setNote] = React.useState("");
   const [summary, setSummary] = React.useState("");
   const [generatingSummary, setGeneratingSummary] = React.useState(false);
+  const [quizQuestions, setQuizQuestions] = React.useState<QuizQuestion[]>([]);
+  const [quizLoading, setQuizLoading] = React.useState(false);
+  const [selectedAnswers, setSelectedAnswers] = React.useState<Record<string, string>>({});
+  const [quizSubmitted, setQuizSubmitted] = React.useState(false);
+  const [quizResult, setQuizResult] = React.useState<{ score: number; total: number } | null>(null);
   const [bookmarks, setBookmarks] = React.useState<Bookmark[]>([]);
   const [bookmarkLabel, setBookmarkLabel] = React.useState("");
   const [bookmarkTime, setBookmarkTime] = React.useState("");
@@ -108,6 +116,11 @@ function VideoPageContent() {
     if (user) saveSummary(user.uid, videoId, val);
   }, 900);
 
+  const handleSummaryChange = React.useCallback((nextHtml: string) => {
+    setSummary(nextHtml);
+    debouncedSaveSummary(nextHtml);
+  }, [debouncedSaveSummary]);
+
   async function handleSaveNote() {
     if (!user) return;
     await saveNote(user.uid, videoId, note);
@@ -132,13 +145,70 @@ function VideoPageContent() {
       const draft = await generateStarterSummary(idToken, {
         youtubeVideoId: video.youtubeVideoId || "",
       });
-      setSummary(draft);
-      await saveSummary(user.uid, videoId, draft);
+      const draftHtml = toSummaryHtml(draft);
+      setSummary(draftHtml);
+      await saveSummary(user.uid, videoId, draftHtml);
       toast.success("Starter summary generated — feel free to edit it.");
     } catch (error: any) {
       toast.error(error?.message || "Couldn't generate a summary right now.");
     } finally {
       setGeneratingSummary(false);
+    }
+  }
+
+  async function handleGenerateQuiz() {
+    if (!user || !video || quizLoading) return;
+    setQuizLoading(true);
+    try {
+      const idToken = await user.getIdToken();
+      const response = await generateVideoQuizForCurrentVideo(idToken, {
+        youtubeVideoId: video.youtubeVideoId || "",
+        videoId,
+        playlistId,
+        title: video.title,
+        description: video.description || "",
+      });
+      setQuizQuestions(response.questions || []);
+      setSelectedAnswers({});
+      setQuizSubmitted(false);
+      setQuizResult(null);
+      if (!response.questions?.length) {
+        toast.error("No quiz questions were generated.");
+      }
+    } catch (error: any) {
+      toast.error(error?.message || "Couldn't generate a quiz right now.");
+    } finally {
+      setQuizLoading(false);
+    }
+  }
+
+  async function handleQuizSubmit() {
+    if (quizQuestions.length === 0 || !user || !video) return;
+    const total = quizQuestions.length;
+    const score = quizQuestions.reduce((count, question) => {
+      return count + (selectedAnswers[question.id] === question.correctOptionId ? 1 : 0);
+    }, 0);
+    setQuizResult({ score, total });
+    setQuizSubmitted(true);
+
+    try {
+      const idToken = await user.getIdToken();
+      await fetch("/api/quiz-attempts", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          userId: user.uid,
+          videoId: video.id,
+          categoryId: video.categoryId || null,
+          score,
+          totalQuestions: total,
+        }),
+      });
+    } catch {
+      // Intentionally non-blocking: the quiz can still be graded locally.
     }
   }
 
@@ -307,6 +377,7 @@ function VideoPageContent() {
               <TabsList>
                 <TabsTrigger value="summary">Summary</TabsTrigger>
                 <TabsTrigger value="notes">Notes</TabsTrigger>
+                <TabsTrigger value="quiz">Quiz</TabsTrigger>
                 <TabsTrigger value="bookmarks">Bookmarks</TabsTrigger>
               </TabsList>
 
@@ -323,9 +394,9 @@ function VideoPageContent() {
                     {generatingSummary ? "Generating…" : "Generate starter summary"}
                   </Button>
                 </div>
-                <Textarea
+                <RichTextEditor
                   value={summary}
-                  onChange={(e) => { setSummary(e.target.value); debouncedSaveSummary(e.target.value); }}
+                  onChange={handleSummaryChange}
                   placeholder="Write your own summary of this video's key ideas…"
                   className="min-h-[140px]"
                 />
@@ -349,6 +420,73 @@ function VideoPageContent() {
                   </div>
                   <p className="text-xs text-muted-foreground">Private to you. Not included in shared or public video pages.</p>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="quiz" className="space-y-4">
+                <div className="flex justify-end">
+                  <Button variant="outline" size="sm" onClick={handleGenerateQuiz} disabled={quizLoading}>
+                    {quizLoading ? "Generating…" : quizQuestions.length ? "Generate a new quiz" : "Generate quiz"}
+                  </Button>
+                </div>
+
+                {quizQuestions.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+                    No quiz generated yet. Generate one from this video to test your understanding.
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    {quizQuestions.map((question, index) => {
+                      const selected = selectedAnswers[question.id];
+                      return (
+                        <div key={question.id} className="rounded-lg border border-border p-4">
+                          <p className="mb-3 font-medium">{index + 1}. {question.prompt}</p>
+                          <div className="space-y-2">
+                            {question.options.map((option) => {
+                              const isCorrect = option.id === question.correctOptionId;
+                              const isSelected = selected === option.id;
+                              const showCorrect = quizSubmitted && isCorrect;
+                              const showWrong = quizSubmitted && isSelected && !isCorrect;
+                              return (
+                                <label
+                                  key={option.id}
+                                  className={[
+                                    "flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm transition",
+                                    showCorrect ? "border-emerald-500 bg-emerald-50 text-emerald-900" : "",
+                                    showWrong ? "border-red-500 bg-red-50 text-red-900" : "",
+                                    !quizSubmitted && isSelected ? "border-primary bg-accent/5" : "border-border",
+                                  ].join(" ")}
+                                >
+                                  <input
+                                    type="radio"
+                                    name={question.id}
+                                    checked={selected === option.id}
+                                    onChange={() => setSelectedAnswers((current) => ({ ...current, [question.id]: option.id }))}
+                                    disabled={quizSubmitted}
+                                    className="mt-1"
+                                  />
+                                  <span>{option.text}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          {quizSubmitted && (
+                            <p className="mt-3 text-sm text-muted-foreground">
+                              <span className="font-medium text-foreground">Explanation:</span> {question.explanation}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {!quizSubmitted ? (
+                      <Button onClick={handleQuizSubmit} className="w-full sm:w-auto">Submit quiz</Button>
+                    ) : quizResult ? (
+                      <div className="rounded-md border border-border bg-muted/40 p-3 text-sm">
+                        Result: {quizResult.score} / {quizResult.total} correct
+                      </div>
+                    ) : null}
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="bookmarks" className="space-y-3">
