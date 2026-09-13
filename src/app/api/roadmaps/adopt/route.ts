@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
   const nextInterests = normalizeUserInterests((profileData?.interests ?? []).map((item: any) => ({
     categoryId: item?.categoryId,
     level: item?.categoryId === categoryId ? level : item?.level ?? null,
+    subtopics: item?.subtopics,
   })));
   await adminDb.collection("users").doc(uid).set({ interests: nextInterests }, { merge: true });
 

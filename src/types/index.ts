@@ -124,6 +124,7 @@ export type InterestLevel = "basic" | "intermediate" | "advanced" | null;
 export interface UserInterest {
   categoryId: string;
   level: InterestLevel;
+  subtopics?: string[];
 }
 
 export interface UserProfile {

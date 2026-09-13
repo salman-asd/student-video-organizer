@@ -3,6 +3,7 @@ export type UserInterestLevel = "basic" | "intermediate" | "advanced" | null;
 export interface UserInterest {
   categoryId: string;
   level: UserInterestLevel;
+  subtopics?: string[];
 }
 
 export interface InterestSuggestionResult {
@@ -24,6 +25,9 @@ export function normalizeUserInterests(input: Array<Partial<UserInterest> | null
     next.push({
       categoryId,
       level: item.level === "basic" || item.level === "intermediate" || item.level === "advanced" ? item.level : null,
+      ...(Array.isArray(item.subtopics)
+        ? { subtopics: Array.from(new Set(item.subtopics.map((topic) => String(topic ?? "").trim()).filter(Boolean))) }
+        : {}),
     });
   }
 
@@ -118,6 +122,24 @@ export function setUserInterestLevel(
   }
 
   return normalizeUserInterests([...next, { categoryId: cleanCategoryId, level }]);
+}
+
+export function setUserInterestSubtopics(
+  input: Array<Partial<UserInterest> | null | undefined>,
+  categoryId: string,
+  subtopics: string[],
+): UserInterest[] {
+  const cleanCategoryId = String(categoryId ?? "").trim();
+  const cleanSubtopics = Array.from(new Set(subtopics.map((topic) => String(topic ?? "").trim()).filter(Boolean)));
+  if (!cleanCategoryId) return normalizeUserInterests(input);
+
+  const next = normalizeUserInterests(input);
+  const existing = next.find((interest) => interest.categoryId === cleanCategoryId);
+  if (!existing) return normalizeUserInterests([...next, { categoryId: cleanCategoryId, level: null, subtopics: cleanSubtopics }]);
+
+  return next.map((interest) => interest.categoryId === cleanCategoryId
+    ? { ...interest, subtopics: cleanSubtopics }
+    : interest);
 }
 
 export function hasCompletedInterestSelection(profileLike: { interests?: Array<Partial<UserInterest> | null | undefined> | null } | null | undefined): boolean {

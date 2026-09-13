@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -17,7 +18,7 @@ import {
 } from "@/lib/aiConnectionsClient";
 import { getAiPreferences, updateAiPreferences, type AiPreferences } from "@/lib/aiPreferencesClient";
 import { createCategory, listCategories } from "@/lib/firestore/categoriesTags";
-import { getDefaultSubcategoriesForMain, validateCustomInterestName } from "@/lib/defaultTaxonomy";
+import { getDefaultSubcategoriesForMain, validateCustomInterestName, validateCustomSubtopicName } from "@/lib/defaultTaxonomy";
 import { normalizeUserInterests } from "@/lib/userInterests";
 import type { AiConnectionSummary, Category, UserInterest } from "@/types";
 import { Plus, Pencil, Trash2, Sparkles, GripVertical, Check } from "lucide-react";
@@ -46,6 +47,11 @@ function SettingsContent() {
   const [savingPreference, setSavingPreference] = React.useState(false);
   const [interestCategories, setInterestCategories] = React.useState<Category[]>([]);
   const [selectedInterestIds, setSelectedInterestIds] = React.useState<string[]>([]);
+  const [selectedSubtopics, setSelectedSubtopics] = React.useState<Record<string, string[]>>({});
+  const [customSubtopicInputs, setCustomSubtopicInputs] = React.useState<Record<string, string>>({});
+  const [subtopicSuggestions, setSubtopicSuggestions] = React.useState<Record<string, string | null>>({});
+  const [subtopicSuggestionLoading, setSubtopicSuggestionLoading] = React.useState<Record<string, boolean>>({});
+  const suggestionTrayRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
   const [customInterestInput, setCustomInterestInput] = React.useState("");
   const [savingInterests, setSavingInterests] = React.useState(false);
   const [savingCustomInterest, setSavingCustomInterest] = React.useState(false);
@@ -72,6 +78,7 @@ function SettingsContent() {
       setAiPreferences(nextPreferences);
       setInterestCategories(nextCategories);
       setSelectedInterestIds(savedInterests.map((item) => item.categoryId));
+      setSelectedSubtopics(Object.fromEntries(savedInterests.map((item) => [item.categoryId, item.subtopics ?? []])));
     } catch (error: any) {
       toast.error(error?.message || "Failed to load your settings.");
     } finally {
@@ -99,7 +106,11 @@ function SettingsContent() {
     if (!user) return;
     setSavingInterests(true);
     try {
-      const interests = normalizeUserInterests(selectedInterestIds.map((categoryId) => ({ categoryId, level: null })));
+      const interests = normalizeUserInterests(selectedInterestIds.map((categoryId) => ({
+        categoryId,
+        level: null,
+        subtopics: selectedSubtopics[categoryId] ?? [],
+      })));
       await updateDoc(doc(db, "users", user.uid), { interests });
       toast.success("Your interests were saved.");
     } catch (error: any) {
@@ -130,7 +141,69 @@ function SettingsContent() {
     }
   }
 
+  async function addCustomSubtopic(categoryId: string) {
+    const category = selectedCategories.find((item) => item.id === categoryId);
+    const value = customSubtopicInputs[categoryId] ?? "";
+    const knownSubtopics = category ? getDefaultSubcategoriesForMain(category.name) : [];
+    const validation = validateCustomInterestName(value);
+    if (!validation.valid) {
+      toast.error(validation.reason || "Subtopic name is invalid.");
+      return;
+    }
+
+    if (knownSubtopics.some((topic) => topic.toLowerCase() === validation.normalized.toLowerCase())) {
+      toast.error("Select this subtopic from the suggestions instead of adding a duplicate.");
+      return;
+    }
+
+    setSubtopicSuggestionLoading((prev) => ({ ...prev, [categoryId]: true }));
+    try {
+      const response = await fetch("/api/ai/suggest-category-name", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${await user!.getIdToken()}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ otherText: validation.normalized, contextName: category?.name, candidateSubtopics: knownSubtopics }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      const suggestion = String(payload?.suggestion?.cleanedName ?? "").trim();
+      if (response.ok && suggestion && suggestion.toLowerCase() !== validation.normalized.toLowerCase()) {
+        setSubtopicSuggestions((prev) => ({ ...prev, [categoryId]: suggestion }));
+        toast.info("Please review the spelling suggestion before adding this subtopic.");
+        return;
+      }
+      if (!response.ok && !validateCustomSubtopicName(value, knownSubtopics).valid) {
+        toast.error(validateCustomSubtopicName(value, knownSubtopics).reason || "Please correct the subtopic spelling.");
+        return;
+      }
+
+      setSelectedSubtopics((prev) => ({ ...prev, [categoryId]: Array.from(new Set([...(prev[categoryId] ?? []), validation.normalized])) }));
+      setCustomSubtopicInputs((prev) => ({ ...prev, [categoryId]: "" }));
+      setSubtopicSuggestions((prev) => ({ ...prev, [categoryId]: null }));
+    } catch {
+      const fallback = validateCustomSubtopicName(value, knownSubtopics);
+      if (!fallback.valid) {
+        toast.error(fallback.reason || "Please correct the subtopic spelling.");
+        return;
+      }
+      setSelectedSubtopics((prev) => ({ ...prev, [categoryId]: Array.from(new Set([...(prev[categoryId] ?? []), validation.normalized])) }));
+      setCustomSubtopicInputs((prev) => ({ ...prev, [categoryId]: "" }));
+    } finally {
+      setSubtopicSuggestionLoading((prev) => ({ ...prev, [categoryId]: false }));
+    }
+  }
+
   React.useEffect(() => { load(); }, [load]);
+
+  React.useEffect(() => {
+    function handlePointerDown(event: PointerEvent) {
+      for (const [categoryId, ref] of Object.entries(suggestionTrayRefs.current)) {
+        if (ref && !ref.contains(event.target as Node)) {
+          setSubtopicSuggestions((prev) => ({ ...prev, [categoryId]: null }));
+        }
+      }
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, []);
 
   function openCreate() {
     setEditingConnection(null);
@@ -227,9 +300,12 @@ function SettingsContent() {
 
         <Card>
           <CardContent className="space-y-4 p-4">
-            <div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
               <h2 className="font-display text-base font-semibold">Learning interests</h2>
               <p className="text-sm text-muted-foreground">Choose your main learning topics and refine them with the most relevant subtopics.</p>
+              </div>
+              <Link href="/onboarding" className="text-sm font-medium text-accent hover:underline">Review onboarding</Link>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -258,6 +334,17 @@ function SettingsContent() {
                     <div key={category.id} className="space-y-2">
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">{category.name}</p>
                       <div className="flex flex-wrap gap-2">
+                        {(selectedSubtopics[category.id] ?? []).filter((topic) => !subtopics.includes(topic)).map((topic) => (
+                          <button
+                            key={`${category.id}-custom-${topic}`}
+                            type="button"
+                            onClick={() => setSelectedSubtopics((prev) => ({ ...prev, [category.id]: (prev[category.id] ?? []).filter((item) => item !== topic) }))}
+                            className="rounded-full border border-accent bg-accent/10 px-2.5 py-1.5 text-xs text-accent"
+                            title="Remove custom subtopic"
+                          >
+                            {topic} ×
+                          </button>
+                        ))}
                         {subtopics.length === 0 ? (
                           <span className="text-xs text-muted-foreground">No default subtopics for this topic yet.</span>
                         ) : (
@@ -265,14 +352,65 @@ function SettingsContent() {
                             <button
                               key={`${category.id}-${subtopic}`}
                               type="button"
-                              onClick={() => setCustomInterestInput(subtopic)}
-                              className="rounded-full border border-border bg-background px-2.5 py-1.5 text-xs text-foreground transition hover:border-accent hover:text-accent"
+                              onClick={() => setSelectedSubtopics((prev) => {
+                                const current = prev[category.id] ?? [];
+                                return {
+                                  ...prev,
+                                  [category.id]: current.includes(subtopic)
+                                    ? current.filter((item) => item !== subtopic)
+                                    : [...current, subtopic],
+                                };
+                              })}
+                              className={`rounded-full border px-2.5 py-1.5 text-xs transition ${selectedSubtopics[category.id]?.includes(subtopic) ? "border-accent bg-accent/10 text-accent" : "border-border bg-background text-foreground hover:border-accent hover:text-accent"}`}
                             >
+                              {selectedSubtopics[category.id]?.includes(subtopic) && <Check className="mr-1 inline h-3 w-3" />}
                               {subtopic}
                             </button>
                           ))
                         )}
                       </div>
+                      <div className="flex gap-2">
+                        <Input
+                          value={customSubtopicInputs[category.id] ?? ""}
+                          onChange={(event) => setCustomSubtopicInputs((prev) => ({ ...prev, [category.id]: event.target.value }))}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              if (!subtopicSuggestionLoading[category.id]) void addCustomSubtopic(category.id);
+                            }
+                          }}
+                          placeholder="Other subtopic"
+                        />
+                        <Button type="button" variant="outline" onClick={() => void addCustomSubtopic(category.id)} disabled={subtopicSuggestionLoading[category.id]}>
+                          {subtopicSuggestionLoading[category.id] ? "Checking…" : "Add"}
+                        </Button>
+                      </div>
+                      {(subtopicSuggestionLoading[category.id] || subtopicSuggestions[category.id]) && (
+                        <div
+                          ref={(element) => { suggestionTrayRefs.current[category.id] = element; }}
+                          className="rounded-md border border-accent/30 bg-accent/5 p-2 text-xs text-accent"
+                        >
+                          {subtopicSuggestionLoading[category.id] ? "Checking spelling…" : (
+                            <button
+                              type="button"
+                              className="font-medium hover:underline"
+                              onClick={() => {
+                                const suggestion = subtopicSuggestions[category.id];
+                                if (!suggestion) return;
+                                setSelectedSubtopics((prev) => ({
+                                  ...prev,
+                                  [category.id]: Array.from(new Set([...(prev[category.id] ?? []), suggestion])),
+                                }));
+                                setCustomSubtopicInputs((prev) => ({ ...prev, [category.id]: "" }));
+                              }}
+                            >
+                              {selectedSubtopics[category.id]?.includes(subtopicSuggestions[category.id] ?? "")
+                                ? `Added “${subtopicSuggestions[category.id]}”`
+                                : `Add “${subtopicSuggestions[category.id]}” to selected subtopics`}
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

@@ -233,6 +233,9 @@ function RoadmapContent() {
                     <div>
                       <h2 className="font-display text-xl font-semibold">{category.name}</h2>
                       <p className="text-sm text-muted-foreground">Current level: {level}</p>
+                      {matchedInterest?.subtopics?.length ? (
+                        <p className="text-xs text-muted-foreground">Focus: {matchedInterest.subtopics.join(", ")}</p>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(["basic", "intermediate", "advanced"] as RoadmapLevel[]).map((nextLevel) => (
