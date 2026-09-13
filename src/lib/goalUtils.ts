@@ -85,12 +85,80 @@ export function getGoalLinkedVideos(goal: Pick<Goal, "linkedVideos">): LinkedVid
  */
 export function calculateGoalProgress(
   goal: Pick<Goal, "linkedPlaylists" | "linkedPlaylistId" | "linkedPlaylistTitle" | "linkedVideos">,
-  allVideos: { id: string; playlistId: string; status: string }[]
+  allVideos: Array<{ id: string; playlistId?: string | null; status?: string | null }> 
 ): { watched: number; total: number } {
   const playlistIds = new Set(getGoalLinkedPlaylists(goal).map((p) => p.id));
   const videoIds = new Set(getGoalLinkedVideos(goal).map((v) => v.id));
   if (playlistIds.size === 0 && videoIds.size === 0) return { watched: 0, total: 0 };
 
-  const matched = allVideos.filter((v) => playlistIds.has(v.playlistId) || videoIds.has(v.id));
-  return { watched: matched.filter((v) => v.status === "completed").length, total: matched.length };
+  const matched = allVideos.filter((v) => !!v.playlistId && (playlistIds.has(v.playlistId) || videoIds.has(v.id)) || videoIds.has(v.id));
+  return { watched: matched.filter((v) => (v.status ?? "not_started") === "completed").length, total: matched.length };
+}
+
+export interface DailyPaceSummary {
+  videosRemaining: number;
+  daysRemaining: number;
+  videosPerDayNeeded: number;
+  status: "ahead" | "on-track" | "behind" | "overdue";
+}
+
+export function computeDailyPace(
+  goal: Pick<Goal, "targetDate" | "completed" | "linkedPlaylists" | "linkedPlaylistId" | "linkedPlaylistTitle" | "linkedVideos">,
+  allVideos: Array<{ id: string; playlistId?: string | null; status?: string | null }> ,
+  now: Date = new Date()
+): DailyPaceSummary {
+  const hasExplicitLinks = !!(
+    (goal.linkedPlaylists && goal.linkedPlaylists.length > 0) ||
+    (goal.linkedVideos && goal.linkedVideos.length > 0) ||
+    goal.linkedPlaylistId
+  );
+
+  const progress = hasExplicitLinks ? calculateGoalProgress(goal, allVideos) : {
+    watched: allVideos.filter((video) => (video.status ?? "not_started") === "completed").length,
+    total: allVideos.length,
+  };
+  const remaining = Math.max(0, progress.total - progress.watched);
+
+  if (goal.completed) {
+    return { videosRemaining: 0, daysRemaining: 0, videosPerDayNeeded: 0, status: "ahead" };
+  }
+
+  if (!goal.targetDate) {
+    return {
+      videosRemaining: remaining,
+      daysRemaining: 0,
+      videosPerDayNeeded: 0,
+      status: remaining === 0 ? "ahead" : "on-track",
+    };
+  }
+
+  const due = parseISO(goal.targetDate);
+  if (Number.isNaN(due.getTime())) {
+    return {
+      videosRemaining: remaining,
+      daysRemaining: 0,
+      videosPerDayNeeded: 0,
+      status: remaining === 0 ? "ahead" : "on-track",
+    };
+  }
+
+  if (remaining === 0) {
+    return { videosRemaining: 0, daysRemaining: Math.max(0, differenceInCalendarDays(due, now)), videosPerDayNeeded: 0, status: "ahead" };
+  }
+
+  if (due.getTime() < now.getTime()) {
+    return { videosRemaining: remaining, daysRemaining: 0, videosPerDayNeeded: remaining, status: "overdue" };
+  }
+
+  const daysRemaining = Math.max(1, differenceInCalendarDays(due, now));
+  const pace = remaining / daysRemaining;
+  const videosPerDayNeeded = Math.ceil(pace);
+  const status: DailyPaceSummary["status"] = pace < 0.5 ? "ahead" : pace <= 1 ? "on-track" : "behind";
+
+  return {
+    videosRemaining: remaining,
+    daysRemaining,
+    videosPerDayNeeded,
+    status,
+  };
 }

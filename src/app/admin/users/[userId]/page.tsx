@@ -25,8 +25,10 @@ import { listGoals, toggleGoal } from "@/lib/firestore/goals";
 import { getGoalLinkedPlaylists, getGoalLinkedVideos } from "@/lib/goalUtils";
 import { formatWatchTime } from "@/lib/utils";
 import type { Goal, PersonalPlaylist, Playlist, UserProfile, VideoWithState } from "@/types";
-import { ArrowLeft, Flame, ShieldOff, ShieldCheck as ShieldCheckIcon, StickyNote, Lock } from "lucide-react";
+import { ArrowLeft, Flame, ShieldOff, ShieldCheck as ShieldCheckIcon, StickyNote, Lock, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/components/auth/AuthProvider";
+import type { AiQuota } from "@/lib/server/aiQuota";
 
 export default function AdminUserDetailPage() {
   return (
@@ -38,8 +40,11 @@ export default function AdminUserDetailPage() {
 
 function AdminUserDetailContent() {
   const { userId } = useParams<{ userId: string }>();
+  const { user } = useAuth();
   const router = useRouter();
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
+  const [quota, setQuota] = React.useState<AiQuota | null>(null);
+  const [quotaSaving, setQuotaSaving] = React.useState(false);
   const [playlists, setPlaylists] = React.useState<Playlist[]>([]);
   const [videos, setVideos] = React.useState<VideoWithState[]>([]);
   const [goals, setGoals] = React.useState<Goal[]>([]);
@@ -62,6 +67,18 @@ function AdminUserDetailContent() {
     setPlaylists(pls);
     setGoals(gs);
     setPersonalPlaylists(personalPls);
+    if (user) {
+      try {
+        const idToken = await user.getIdToken();
+        const res = await fetch(`/api/ai/quota?uid=${encodeURIComponent(userId)}`, {
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) setQuota(data.quota ?? null);
+      } catch {
+        setQuota(null);
+      }
+    }
     const allVideos: VideoWithState[] = [];
     for (const pl of pls) {
       const vids = await listVideos(pl.id);
@@ -69,9 +86,30 @@ function AdminUserDetailContent() {
     }
     setVideos(allVideos);
     setLoading(false);
-  }, [userId]);
+  }, [user, userId]);
 
   React.useEffect(() => { load(); }, [load]);
+
+  async function handleQuotaSave(next: Partial<AiQuota>) {
+    if (!user || !userId || !quota) return;
+    setQuotaSaving(true);
+    try {
+      const idToken = await user.getIdToken();
+      const response = await fetch("/api/ai/quota", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: userId, ...next }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Failed to update quota.");
+      setQuota(data.quota ?? { ...quota, ...next });
+      toast.success("AI access updated");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to update AI access.");
+    } finally {
+      setQuotaSaving(false);
+    }
+  }
 
   async function openNoteDialog(v: VideoWithState) {
     const [n, s] = await Promise.all([getNote(userId, v.id), getSummary(userId, v.id)]);
@@ -135,6 +173,56 @@ function AdminUserDetailContent() {
             </Button>
           </div>
         </div>
+
+        <Card>
+          <CardContent className="space-y-4 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <Sparkles className="mt-0.5 h-5 w-5 text-accent" />
+                <div>
+                  <h2 className="font-display text-base font-semibold">AI Access</h2>
+                  <p className="text-sm text-muted-foreground">Manage this student’s system AI fallback and daily allowance.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="relative inline-flex h-6 w-11 items-center rounded-full border border-border bg-secondary transition-colors data-[on=true]:bg-primary"
+                data-on={Boolean(quota?.systemAiEnabled)}
+                onClick={() => quota && handleQuotaSave({ systemAiEnabled: !quota.systemAiEnabled })}
+                disabled={quotaSaving || !quota}
+                aria-label="Toggle system AI access"
+              >
+                <span className={"inline-block h-5 w-5 rounded-full bg-white transition-transform " + (quota?.systemAiEnabled ? "translate-x-5" : "translate-x-1")} />
+              </button>
+            </div>
+
+            {quota ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Daily limit</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={quota.dailyLimit}
+                      onChange={(e) => setQuota({ ...quota, dailyLimit: Number(e.target.value) || 0 })}
+                      onBlur={() => handleQuotaSave({ dailyLimit: quota.dailyLimit })}
+                      className="w-28 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+                    />
+                    <span className="text-sm text-muted-foreground">/ day</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground">Today</p>
+                  <p className="mt-1 text-lg font-semibold">{quota.usedToday}/{quota.dailyLimit}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Quota data isn’t available yet.</p>
+            )}
+          </CardContent>
+        </Card>
 
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           <StatCard label="Total Videos" value={profile.stats?.totalVideos ?? videos.length} />

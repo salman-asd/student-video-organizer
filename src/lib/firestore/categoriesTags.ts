@@ -1,5 +1,6 @@
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { DEFAULT_TAXONOMY } from "@/lib/defaultTaxonomy";
 import type { Category, Tag } from "@/types";
 
 const categoriesCol = (userId: string) => collection(db, "users", userId, "categories");
@@ -28,6 +29,23 @@ export async function createCategory(name: string, createdBy: string): Promise<s
 }
 
 export const createCategoryIfMissing = createCategory;
+
+export async function seedDefaultCategoriesForUser(userId: string): Promise<string[]> {
+  const createdIds: string[] = [];
+
+  for (const category of DEFAULT_TAXONOMY) {
+    const categoryId = await createCategory(category.name, userId);
+    createdIds.push(categoryId);
+  }
+
+  return createdIds;
+}
+
+export async function ensureUserHasDefaultCategories(userId: string): Promise<string[]> {
+  const existing = await listCategories(userId);
+  if (existing.length > 0) return existing.map((item) => item.id);
+  return seedDefaultCategoriesForUser(userId);
+}
 
 export async function updateCategory(userId: string, id: string, name: string) {
   const cleanName = name.trim();

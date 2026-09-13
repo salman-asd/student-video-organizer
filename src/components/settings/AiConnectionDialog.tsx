@@ -23,12 +23,16 @@ const PROVIDER_LABELS: Record<AiProvider, string> = {
 
 export function AiConnectionDialog({
   open, onOpenChange, connection, onSaved,
+  createConnection = async (idToken, input) => createAiConnection(idToken, input),
+  updateConnection = async (idToken, id, input) => updateAiConnection(idToken, id, input),
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Present → edit that connection. Absent → create a new one. */
   connection?: AiConnectionSummary | null;
   onSaved: (connection: AiConnectionSummary) => void;
+  createConnection?: typeof createAiConnection;
+  updateConnection?: typeof updateAiConnection;
 }) {
   const { user } = useAuth();
   const isEdit = !!connection;
@@ -61,12 +65,12 @@ export function AiConnectionDialog({
     try {
       const idToken = await user.getIdToken();
       const saved = isEdit && connection
-        ? await updateAiConnection(idToken, connection.id, {
+        ? await updateConnection(idToken, connection.id, {
             model: model.trim(),
             label: label.trim(),
             ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
           })
-        : await createAiConnection(idToken, {
+        : await createConnection(idToken, {
             provider,
             apiKey: apiKey.trim(),
             model: model.trim(),
@@ -150,8 +154,8 @@ export function AiConnectionDialog({
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              This is sent to Study Lamp's server once, encrypted, and stored — it's never sent back to any
-              browser, including yours. Requests using this key are sent from Study Lamp's server, not
+              This is sent to Study Lamp&apos;s server once, encrypted, and stored — it&apos;s never sent back to any
+              browser, including yours. Requests using this key are sent from Study Lamp&apos;s server, not
               your browser.
             </p>
           </div>

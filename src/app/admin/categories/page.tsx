@@ -11,8 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import {
   createCategory, createTag, deleteCategory, deleteTag, listCategories, listTags,
 } from "@/lib/firestore/categoriesTags";
-import type { Category, Tag } from "@/types";
-import { Plus, X } from "lucide-react";
+import {
+  approveCategorySuggestion,
+  listCategorySuggestions,
+  rejectCategorySuggestion,
+} from "@/lib/firestore/categorySuggestions";
+import type { Category, CategorySuggestion, Tag } from "@/types";
+import { Plus, X, Check, Ban } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminCategoriesPage() {
@@ -29,11 +34,18 @@ function AdminCategoriesContent() {
   const [tags, setTags] = React.useState<Tag[]>([]);
   const [newCategory, setNewCategory] = React.useState("");
   const [newTag, setNewTag] = React.useState("");
+  const [suggestions, setSuggestions] = React.useState<CategorySuggestion[]>([]);
 
   const load = React.useCallback(async () => {
     if (!user) return;
-    setCategories(await listCategories(user.uid));
-    setTags(await listTags());
+    const [nextCategories, nextTags, nextSuggestions] = await Promise.all([
+      listCategories(user.uid),
+      listTags(),
+      listCategorySuggestions("pending"),
+    ]);
+    setCategories(nextCategories);
+    setTags(nextTags);
+    setSuggestions(nextSuggestions);
   }, [user]);
 
   React.useEffect(() => { load(); }, [load]);
@@ -52,6 +64,19 @@ function AdminCategoriesContent() {
     setNewTag("");
     toast.success("Tag added");
     load();
+  }
+
+  async function handleApprove(suggestion: CategorySuggestion) {
+    if (!user) return;
+    await approveCategorySuggestion(suggestion.id, user.uid);
+    toast.success(`Approved “${suggestion.aiCleanedName || suggestion.suggestedName}”`);
+    await load();
+  }
+
+  async function handleReject(suggestion: CategorySuggestion) {
+    await rejectCategorySuggestion(suggestion.id);
+    toast.success("Suggestion rejected");
+    await load();
   }
 
   return (
@@ -97,6 +122,35 @@ function AdminCategoriesContent() {
               ))}
               {tags.length === 0 && <p className="text-sm text-muted-foreground">No tags yet.</p>}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <h2 className="font-display text-base font-semibold">Pending category suggestions</h2>
+            {suggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No suggestions waiting for review.</p>
+            ) : (
+              <div className="space-y-2">
+                {suggestions.map((suggestion) => (
+                  <div key={suggestion.id} className="flex flex-col gap-2 rounded-md border border-border p-3 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="font-medium">{suggestion.aiCleanedName || suggestion.suggestedName}</div>
+                      <p className="text-xs text-muted-foreground">From: {suggestion.suggestedName}</p>
+                      {suggestion.similarExistingCategoryId && <p className="text-xs text-muted-foreground">Looks similar to an existing category.</p>}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => void handleApprove(suggestion)}>
+                        <Check className="h-4 w-4" /> Approve
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => void handleReject(suggestion)}>
+                        <Ban className="h-4 w-4" /> Reject
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

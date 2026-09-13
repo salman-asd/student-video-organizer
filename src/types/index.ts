@@ -119,6 +119,13 @@ export interface WatchProgress {
   updatedAt: Timestamp | null;
 }
 
+export type InterestLevel = "basic" | "intermediate" | "advanced" | null;
+
+export interface UserInterest {
+  categoryId: string;
+  level: InterestLevel;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -127,6 +134,7 @@ export interface UserProfile {
   status: "active" | "disabled";
   createdAt: Timestamp | null;
   lastActiveAt: Timestamp | null;
+  interests?: UserInterest[];
   /** Denormalized, cheap-to-read counters updated by client writes at
    *  meaningful events only (not on every keystroke) so the admin table
    *  can render without fanning out reads across every student. */
@@ -154,11 +162,50 @@ export interface Category {
   createdBy: string;
 }
 
+export type RoadmapLevel = "basic" | "intermediate" | "advanced";
+
+export interface RoadmapStep {
+  title: string;
+  description: string;
+  order: number;
+}
+
+export interface RoadmapTemplate {
+  id: string;
+  categoryId: string;
+  level: RoadmapLevel;
+  steps: RoadmapStep[];
+  generatedAt: Timestamp | null;
+}
+
+export interface LearningRoadmap {
+  id: string;
+  categoryId: string;
+  level: RoadmapLevel;
+  steps: RoadmapStep[];
+  adoptedFromTemplateAt: Timestamp | null;
+  createdAt: Timestamp | null;
+  updatedAt: Timestamp | null;
+}
+
 export interface Tag {
   id: string;
   name: string;
   nameLower?: string;
   createdBy: string;
+}
+
+export type CategorySuggestionStatus = "pending" | "approved" | "rejected";
+
+export interface CategorySuggestion {
+  id: string;
+  suggestedName: string;
+  suggestedBy: string;
+  aiCleanedName?: string | null;
+  similarExistingCategoryId?: string | null;
+  status: CategorySuggestionStatus;
+  createdAt: Timestamp | null;
+  reviewedAt?: Timestamp | null;
 }
 
 export type PlaylistVisibility = "shared" | "archived";
@@ -237,6 +284,35 @@ export interface VideoSummary {
   videoId: string;
   content: string;
   updatedAt: Timestamp | null;
+}
+
+export interface QuizOption {
+  id: string;
+  text: string;
+}
+
+export interface QuizQuestion {
+  id: string;
+  prompt: string;
+  options: QuizOption[];
+  correctOptionId: string;
+  explanation: string;
+}
+
+export interface VideoQuizCache {
+  questions: QuizQuestion[];
+  generatedAt: Timestamp | null;
+  sourceHash: string;
+}
+
+export interface QuizAttempt {
+  id: string;
+  userId: string;
+  videoId: string;
+  categoryId?: string | null;
+  score: number;
+  totalQuestions: number;
+  completedAt: Timestamp | null;
 }
 
 export type AiProvider = "gemini" | "openai" | "anthropic" | "openrouter" | "groq";

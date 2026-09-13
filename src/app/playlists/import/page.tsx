@@ -77,6 +77,24 @@ function ImportContent() {
     listPersonalPlaylists(user.uid).then(setPlaylists).catch(() => setPlaylists([]));
   }, [user?.uid]);
 
+  // Lets other pages hand off into this same import flow instead of
+  // building a second importer — e.g. the roadmap page's "Add to my
+  // Playlists" button on a suggested playlist (Phase E3) links here with
+  // ?url=<playlist url> pre-filled and auto-fetched, so the rest of this
+  // page (preview, target-playlist picker, the actual import) is reused
+  // verbatim. Runs once on mount only; editing the URL afterward is a
+  // normal manual re-fetch via the Fetch button.
+  const ranPrefillFetch = React.useRef(false);
+  React.useEffect(() => {
+    if (ranPrefillFetch.current) return;
+    const prefillUrl = searchParams.get("url");
+    if (!prefillUrl) return;
+    ranPrefillFetch.current = true;
+    setUrl(prefillUrl);
+    void handleFetch(prefillUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   // Detected purely to drive the placeholder/icon before the user hits
   // Fetch — the actual provider used for the import comes back from the
   // API response (`data.provider`), which is authoritative.
@@ -87,10 +105,10 @@ function ImportContent() {
   }, [url]);
   const activeProviderUi = PROVIDER_UI[detectedProvider ?? "youtube"];
 
-  async function handleFetch() {
+  async function handleFetch(urlOverride?: string) {
     setError(null);
     setResult(null);
-    const trimmed = url.trim();
+    const trimmed = (urlOverride ?? url).trim();
     if (!trimmed) {
       setError("Paste a YouTube playlist or Facebook collection URL to continue.");
       return;
@@ -210,10 +228,10 @@ function ImportContent() {
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder={activeProviderUi.placeholder}
                   className="pl-9"
-                  onKeyDown={(e) => { if (e.key === "Enter") handleFetch(); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") void handleFetch(); }}
                 />
               </div>
-              <Button onClick={handleFetch} disabled={fetching || !url.trim()}>
+              <Button onClick={() => void handleFetch()} disabled={fetching || !url.trim()}>
                 {fetching ? "Fetching…" : "Fetch"}
               </Button>
             </div>

@@ -12,6 +12,8 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { ensureUserHasDefaultCategories } from "@/lib/firestore/categoriesTags";
+import { hasCompletedInterestSelection, normalizeUserInterests } from "@/lib/userInterests";
 import type { UserProfile } from "@/types";
 
 interface AuthContextValue {
@@ -19,6 +21,7 @@ interface AuthContextValue {
   profile: UserProfile | null;
   loading: boolean;
   isAdmin: boolean;
+  needsOnboarding: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
@@ -36,6 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<User | null>(null);
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [loading, setLoading] = React.useState(true);
+  const needsOnboarding = !!profile && !hasCompletedInterestSelection(profile);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -67,15 +71,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             status: "active",
             createdAt: serverTimestamp() as any,
             lastActiveAt: serverTimestamp() as any,
+            interests: [],
           };
 
           await setDoc(ref, newProfile);
+          await ensureUserHasDefaultCategories(fbUser.uid).catch(() => {});
           if (isMounted) setProfile({ uid: fbUser.uid, ...newProfile });
         } else {
           const data = snap.data() as Omit<UserProfile, "uid">;
-          const nextProfile: UserProfile = { uid: fbUser.uid, ...data };
+          const nextProfile: UserProfile = {
+            uid: fbUser.uid,
+            ...data,
+            interests: normalizeUserInterests((data as any).interests ?? []),
+          };
 
           if (isMounted) setProfile(nextProfile);
+
+          await ensureUserHasDefaultCategories(fbUser.uid).catch(() => {});
 
           // Cheap, infrequent write — only touches lastActiveAt, not on every action.
           await updateDoc(ref, { lastActiveAt: serverTimestamp() }).catch(() => {});
@@ -116,6 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     profile,
     loading,
     isAdmin: profile?.role === "admin",
+    needsOnboarding,
     login,
     logout,
     resetPassword,
