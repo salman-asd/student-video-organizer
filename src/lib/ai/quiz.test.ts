@@ -72,6 +72,12 @@ describe("parseQuizQuestionsFromText", () => {
   it("rejects malformed JSON or missing required fields", () => {
     assert.throws(() => parseQuizQuestionsFromText("not-json"), /Invalid quiz response/);
     assert.throws(() => parseQuizQuestionsFromText(JSON.stringify([{ prompt: "oops" }])), /Invalid quiz response/);
+    assert.throws(() => parseQuizQuestionsFromText(JSON.stringify([{
+      prompt: "What is correct?",
+      options: [{ id: "a", text: "Alpha" }, { id: "b", text: "Beta" }],
+      correctOptionId: "missing",
+      explanation: "The answer is in the lesson.",
+    }])), /Invalid quiz response/);
   });
 
   it("prioritizes transcript and saved summary over title and description in the quiz prompt", () => {

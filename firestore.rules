@@ -88,12 +88,11 @@ service cloud.firestore {
     // ── Users & personal learning data ─────────────────────────────────
     match /users/{uid} {
       allow read: if isSelf(uid) || isAdmin();
-      // Users may create only their own profile, and only with a valid
-      // role/status pair (AuthProvider.tsx always sets both on first
-      // sign-in) — stops a crafted client write from creating a
-      // half-formed or already-admin profile document.
+      // Users may create only their own student profile. Admin profiles must
+      // be provisioned server-side; allowing a client to choose "admin" here
+      // would turn a crafted first sign-in write into privilege escalation.
       allow create: if isSelf(uid) &&
-        request.resource.data.role in ['admin', 'student'] &&
+        request.resource.data.role == 'student' &&
         request.resource.data.status in ['active', 'disabled'];
       // Users may update their own profile EXCEPT role/status (privilege
       // escalation guard). Admins may update anything on any profile.
@@ -175,6 +174,16 @@ service cloud.firestore {
           optionalString(request.resource.data, 'categoryId', 200) &&
           optionalTimestamp(request.resource.data, 'completedAt');
         allow delete: if isSelf(uid) || isAdmin();
+      }
+
+      match /learningEvents/{eventId} {
+        allow read: if isSelf(uid) || isAdmin();
+        allow create: if isSelf(uid) &&
+          request.resource.data.eventName is string &&
+          request.resource.data.eventName.size() <= 100 &&
+          request.resource.data.metadata is map &&
+          request.resource.data.metadata.size() <= 20;
+        allow update, delete: if false;
       }
 
       match /watchProgress/{videoId} {

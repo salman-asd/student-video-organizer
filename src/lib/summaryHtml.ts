@@ -3,7 +3,7 @@ export function toSummaryHtml(value: string): string {
   if (!raw) return "";
 
   if (/<\/?[a-z][\s\S]*>/i.test(raw)) {
-    return raw;
+    return sanitizeSummaryHtml(raw);
   }
 
   const blocks = raw
@@ -15,6 +15,16 @@ export function toSummaryHtml(value: string): string {
   if (blocks.length === 0) return "";
 
   return blocks.map(renderBlock).join("");
+}
+
+function sanitizeSummaryHtml(value: string): string {
+  const withoutDangerousBlocks = value.replace(/<(script|style|iframe|object|embed|form)[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+  const allowedTags = /<\/?(p|h[1-6]|ul|ol|li|strong|em|blockquote|br)\b[^>]*>/gi;
+  const normalizedAllowedTags = withoutDangerousBlocks.replace(allowedTags, (tag: string, name: string) => {
+    const closing = tag.startsWith("</") ? "/" : "";
+    return `<${closing}${name.toLowerCase()}>`;
+  });
+  return normalizedAllowedTags.replace(/<(?!\/?(p|h[1-6]|ul|ol|li|strong|em|blockquote|br)\b)[^>]*>/gi, "");
 }
 
 function renderBlock(block: string): string {

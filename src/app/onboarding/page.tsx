@@ -16,6 +16,7 @@ import { ChevronRight, Check } from "lucide-react";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { toast } from "sonner";
 import { buildInterestSuggestion } from "@/lib/userInterests";
+import { trackLearningEvent } from "@/lib/analytics";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -188,6 +189,7 @@ export default function OnboardingPage() {
         }))
       );
       await updateDoc(doc(db, "users", user.uid), { interests: next });
+      void trackLearningEvent(user.uid, "onboarding_completed", { interestCount: next.length });
       toast.success("Your interests were saved.");
       router.replace("/dashboard");
     } catch (error: any) {

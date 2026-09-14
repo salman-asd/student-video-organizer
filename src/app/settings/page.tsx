@@ -16,7 +16,7 @@ import { SortableList } from "@/components/dnd/SortableList";
 import {
   deleteAiConnection, listAiConnections, reorderAiConnections, testAiConnection, updateAiConnection,
 } from "@/lib/aiConnectionsClient";
-import { getAiPreferences, updateAiPreferences, type AiPreferences } from "@/lib/aiPreferencesClient";
+import { getAiPreferences, getAiQuota, updateAiPreferences, type AiPreferences, type AiQuotaSummary } from "@/lib/aiPreferencesClient";
 import { createCategory, listCategories } from "@/lib/firestore/categoriesTags";
 import { getDefaultSubcategoriesForMain, validateCustomInterestName, validateCustomSubtopicName } from "@/lib/defaultTaxonomy";
 import { normalizeUserInterests } from "@/lib/userInterests";
@@ -44,6 +44,7 @@ function SettingsContent() {
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [editingConnection, setEditingConnection] = React.useState<AiConnectionSummary | null>(null);
   const [aiPreferences, setAiPreferences] = React.useState<AiPreferences>({ speechToTextEnabled: false });
+  const [aiQuota, setAiQuota] = React.useState<AiQuotaSummary | null>(null);
   const [savingPreference, setSavingPreference] = React.useState(false);
   const [interestCategories, setInterestCategories] = React.useState<Category[]>([]);
   const [selectedInterestIds, setSelectedInterestIds] = React.useState<string[]>([]);
@@ -66,9 +67,10 @@ function SettingsContent() {
     setLoading(true);
     try {
       const idToken = await user.getIdToken();
-      const [nextConnections, nextPreferences, nextCategories, profileSnap] = await Promise.all([
+      const [nextConnections, nextPreferences, nextQuota, nextCategories, profileSnap] = await Promise.all([
         listAiConnections(idToken),
         getAiPreferences(idToken),
+        getAiQuota(idToken, user.uid),
         listCategories(user.uid),
         getDoc(doc(db, "users", user.uid)),
       ]);
@@ -76,6 +78,7 @@ function SettingsContent() {
 
       setConnections(nextConnections);
       setAiPreferences(nextPreferences);
+      setAiQuota(nextQuota);
       setInterestCategories(nextCategories);
       setSelectedInterestIds(savedInterests.map((item) => item.categoryId));
       setSelectedSubtopics(Object.fromEntries(savedInterests.map((item) => [item.categoryId, item.subtopics ?? []])));
@@ -525,6 +528,26 @@ function SettingsContent() {
                   </div>
                 )}
               />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-display text-base font-semibold">System AI usage</h2>
+                <p className="mt-1 text-sm text-muted-foreground">System-provided AI requests reset daily. Your own configured connections do not use this quota.</p>
+              </div>
+              <Badge variant={aiQuota?.systemAiEnabled ? "success" : "destructive"}>
+                {aiQuota?.systemAiEnabled ? "Available" : "Disabled"}
+              </Badge>
+            </div>
+            {aiQuota && (
+              <div className="flex items-center justify-between rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                <span>Used today</span>
+                <span className="font-medium">{aiQuota.usedToday} / {aiQuota.dailyLimit}</span>
+              </div>
             )}
           </CardContent>
         </Card>

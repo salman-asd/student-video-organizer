@@ -30,6 +30,7 @@ import {
   Target, Trash2, Pencil, Plus, ListVideo, CalendarClock, CheckCircle2, Flag, Search, X, PlayCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { trackLearningEvent } from "@/lib/analytics";
 
 type FilterTab = "all" | "active" | "completed" | "overdue";
 type SortMode = "dueDate" | "priority" | "newest" | "oldest" | "alphabetical";
@@ -221,6 +222,7 @@ function GoalsContent() {
     if (!user) return;
     setGoals((current) => current.map((g) => (g.id === goal.id ? { ...g, completed } : g)));
     await toggleGoal(user.uid, goal.id, completed);
+    if (completed) void trackLearningEvent(user.uid, "goal_completed", { goalId: goal.id });
     if (completed) toast.success("Nice work! Goal marked complete.");
   }
 

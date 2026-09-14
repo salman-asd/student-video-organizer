@@ -201,7 +201,10 @@ export function parseQuizQuestionsFromText(raw: string): QuizQuestion[] {
       explanation: typeof q.explanation === "string" ? q.explanation.trim() : "",
     };
 
-    if (!normalized.prompt || normalized.options.length < 2 || !normalized.correctOptionId || !normalized.explanation) {
+    const optionIds = new Set(normalized.options.map((option) => option.id));
+    const hasDuplicateOptionIds = optionIds.size !== normalized.options.length;
+    const hasBlankOption = normalized.options.some((option) => !option.id || !option.text);
+    if (!normalized.prompt || normalized.options.length < 2 || hasDuplicateOptionIds || hasBlankOption || !optionIds.has(normalized.correctOptionId) || !normalized.explanation) {
       throw new AiServiceError("invalid_request", "Invalid quiz response.");
     }
 

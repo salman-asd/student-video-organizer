@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { getUserProfile, recomputeUserStats, setUserStatus } from "@/lib/firestore/users";
 import { listPlaylists, listVideos } from "@/lib/firestore/playlists";
 import { listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
+import { listLearningRoadmaps } from "@/lib/firestore/roadmaps";
 import {
   getAllUserVideoStates, setPriority, setWatchedStatus, toggleFavorite, toggleWatchLater,
 } from "@/lib/firestore/userVideoState";
@@ -24,7 +25,7 @@ import { getNote, getSummary } from "@/lib/firestore/notes";
 import { listGoals, toggleGoal } from "@/lib/firestore/goals";
 import { getGoalLinkedPlaylists, getGoalLinkedVideos } from "@/lib/goalUtils";
 import { formatWatchTime } from "@/lib/utils";
-import type { Goal, PersonalPlaylist, Playlist, UserProfile, VideoWithState } from "@/types";
+import type { Goal, LearningRoadmap, PersonalPlaylist, Playlist, UserProfile, VideoWithState } from "@/types";
 import { ArrowLeft, Flame, ShieldOff, ShieldCheck as ShieldCheckIcon, StickyNote, Lock, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -49,6 +50,7 @@ function AdminUserDetailContent() {
   const [videos, setVideos] = React.useState<VideoWithState[]>([]);
   const [goals, setGoals] = React.useState<Goal[]>([]);
   const [personalPlaylists, setPersonalPlaylists] = React.useState<PersonalPlaylist[]>([]);
+  const [roadmaps, setRoadmaps] = React.useState<LearningRoadmap[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [noteDialogVideo, setNoteDialogVideo] = React.useState<VideoWithState | null>(null);
   const [noteContent, setNoteContent] = React.useState("");
@@ -56,17 +58,19 @@ function AdminUserDetailContent() {
 
   const load = React.useCallback(async () => {
     setLoading(true);
-    const [p, pls, states, gs, personalPls] = await Promise.all([
+    const [p, pls, states, gs, personalPls, nextRoadmaps] = await Promise.all([
       getUserProfile(userId),
       listPlaylists(false),
       getAllUserVideoStates(userId),
       listGoals(userId),
       listPersonalPlaylists(userId),
+      listLearningRoadmaps(userId),
     ]);
     setProfile(p);
     setPlaylists(pls);
     setGoals(gs);
     setPersonalPlaylists(personalPls);
+    setRoadmaps(nextRoadmaps);
     if (user) {
       try {
         const idToken = await user.getIdToken();
@@ -236,6 +240,34 @@ function AdminUserDetailContent() {
           <span>Learning time: {profile.stats ? formatWatchTime(profile.stats.totalWatchTimeSeconds) : "—"}</span>
           <span className="flex items-center gap-1"><Flame className="h-3.5 w-3.5 text-accent" /> {profile.stats?.currentStreakDays ?? 0} day streak</span>
         </div>
+
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div>
+              <h2 className="font-display text-base font-semibold">Learning focus</h2>
+              <p className="text-sm text-muted-foreground">This student&apos;s interests and adopted roadmap levels.</p>
+            </div>
+            {(profile.interests?.length ?? 0) === 0 && roadmaps.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No interests or personal roadmaps yet.</p>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(profile.interests || []).map((interest) => {
+                  const roadmap = roadmaps.find((item) => item.categoryId === interest.categoryId && item.level === interest.level);
+                  return (
+                    <div key={interest.categoryId} className="rounded-md border border-border p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{interest.categoryId}</span>
+                        <Badge variant="secondary">{interest.level || "Unleveled"}</Badge>
+                      </div>
+                      {interest.subtopics?.length ? <p className="mt-1 text-xs text-muted-foreground">{interest.subtopics.join(", ")}</p> : null}
+                      <p className="mt-2 text-xs text-muted-foreground">{roadmap ? `${roadmap.steps.length} roadmap steps` : "No adopted roadmap"}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Tabs defaultValue="playlists">
           <TabsList className="flex-wrap">

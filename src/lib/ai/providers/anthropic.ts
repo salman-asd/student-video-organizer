@@ -78,7 +78,7 @@ export async function generateWithAnthropic(
         headers: headers(credentials.apiKey),
         body: JSON.stringify({
           model: credentials.model,
-          max_tokens: 600,
+          max_tokens: 1800,
           messages: [{ role: "user", content: prompt }],
         }),
       })

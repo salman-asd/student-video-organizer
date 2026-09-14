@@ -12,10 +12,10 @@ import { useAuth } from "@/components/auth/AuthProvider";
 
 const studentNav = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/library", label: "Library", icon: ListVideo },
-  { href: "/continue-learning", label: "Continue Learning", icon: PlayCircle },
   { href: "/playlists", label: "Playlists", icon: ListVideo },
+  { href: "/library", label: "Library", icon: ListVideo },
   { href: "/shared", label: "Shared", icon: Share2 },
+  { href: "/continue-learning", label: "Continue Learning", icon: PlayCircle },
   { href: "/watch-later", label: "Watch Later", icon: Clock },
   { href: "/priority", label: "Priority", icon: Flag },
   { href: "/favorites", label: "Favorites", icon: Star },

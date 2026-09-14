@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticatedUid } from "@/lib/server/requireAuth";
-import { listCategories } from "@/lib/firestore/categoriesTags";
-import { saveRoadmapPlan } from "@/lib/firestore/roadmaps";
+import { adminDb } from "@/lib/server/firebase-admin";
 import { withAiConnection } from "@/lib/server/resolveAiConnection";
 import { AiServiceError, generateRoadmapPlan } from "@/lib/ai/aiService";
+import { sanitizeRoadmapSteps } from "@/lib/roadmapUtils";
 import type { RoadmapLevel } from "@/types";
+import admin from "firebase-admin";
 
 const STATUS_BY_CODE: Record<string, number> = {
   auth: 400,
@@ -36,7 +37,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const categories = await listCategories(uid);
+    const categorySnap = await adminDb.collection("users").doc(uid).collection("categories").get();
+    const categories = categorySnap.docs.map((category) => ({
+      id: category.id,
+      name: String(category.data().name || ""),
+    }));
     const resolvedCategory = categories.find((category) => category.id === categoryId) || categories.find((category) => category.name.trim().toLowerCase() === categoryName.toLowerCase());
     const resolvedName = resolvedCategory?.name || categoryName || "Learning topic";
     const targetCategoryId = categoryId || resolvedCategory?.id || resolvedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "learning-topic";
@@ -45,11 +50,20 @@ export async function POST(req: NextRequest) {
       return await generateRoadmapPlan({ provider, apiKey, model }, resolvedName);
     });
 
-    await saveRoadmapPlan(targetCategoryId, {
-      basic: plan.basic,
-      intermediate: plan.intermediate,
-      advanced: plan.advanced,
-    });
+    const roadmapBatch = adminDb.batch();
+    for (const level of ["basic", "intermediate", "advanced"] as RoadmapLevel[]) {
+      roadmapBatch.set(
+        adminDb.collection("roadmapTemplates").doc(`${targetCategoryId}_${level}`),
+        {
+          categoryId: targetCategoryId,
+          level,
+          steps: sanitizeRoadmapSteps(plan[level]),
+          generatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+    }
+    await roadmapBatch.commit();
 
     return NextResponse.json({
       categoryId: targetCategoryId,
@@ -58,6 +72,7 @@ export async function POST(req: NextRequest) {
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (err: any) {
     if (err instanceof AiServiceError) {
+      console.error(`Roadmap AI error [${err.code}]: ${err.message}`);
       return NextResponse.json({ error: err.message }, { status: STATUS_BY_CODE[err.code] ?? 500 });
     }
     console.error("Failed to generate roadmap template", err);
