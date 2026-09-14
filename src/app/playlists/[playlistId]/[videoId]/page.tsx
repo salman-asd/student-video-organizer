@@ -151,6 +151,7 @@ function PersonalVideoContent() {
         youtubeVideoId: video.youtubeVideoId || "",
         videoId,
         playlistId,
+        ownerId: user.uid,
         title: video.title,
         description: video.description || "",
         summary: summary || null,

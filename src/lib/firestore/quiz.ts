@@ -1,16 +1,7 @@
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { QuizQuestion, VideoQuizCache } from "@/types";
-
-export function buildVideoSourceHash(title: string, description?: string | null, summary?: string | null): string {
-  const text = `${(title || "").trim()}\n${(description || "").trim()}\n${(summary || "").trim()}`;
-  let hash = 2166136261;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16);
-}
+export { buildVideoSourceHash } from "@/lib/quizSource";
 
 export async function getVideoQuiz(videoId: string, playlistId?: string): Promise<VideoQuizCache | null> {
   const ref = playlistId

@@ -82,7 +82,7 @@ Requirements:
 - JSON must valid and parseable.`;
 }
 
-function extractJsonPayloadText(raw: string): string {
+function extractJsonPayloadText(raw: string, expectedRoot: "object" | "array"): string {
   const text = (raw ?? "").trim();
   if (!text) return "";
 
@@ -91,16 +91,18 @@ function extractJsonPayloadText(raw: string): string {
     return fenced[1].trim();
   }
 
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  if (start !== -1 && end > start) {
-    return text.slice(start, end + 1).trim();
-  }
-
-  const objectStart = text.indexOf("{");
-  const objectEnd = text.lastIndexOf("}");
-  if (objectStart !== -1 && objectEnd > objectStart) {
-    return text.slice(objectStart, objectEnd + 1).trim();
+  if (expectedRoot === "object") {
+    const objectStart = text.indexOf("{");
+    const objectEnd = text.lastIndexOf("}");
+    if (objectStart !== -1 && objectEnd > objectStart) {
+      return text.slice(objectStart, objectEnd + 1).trim();
+    }
+  } else {
+    const arrayStart = text.indexOf("[");
+    const arrayEnd = text.lastIndexOf("]");
+    if (arrayStart !== -1 && arrayEnd > arrayStart) {
+      return text.slice(arrayStart, arrayEnd + 1).trim();
+    }
   }
 
   return text;
@@ -110,7 +112,7 @@ export function parseRoadmapPlanFromText(raw: string): RoadmapPlan {
   const text = (raw ?? "").trim();
   if (!text) throw new AiServiceError("invalid_request", "Invalid roadmap response.");
 
-  const payloadText = extractJsonPayloadText(text);
+  const payloadText = extractJsonPayloadText(text, "object");
 
   let parsed: unknown;
   try {
@@ -173,7 +175,7 @@ export function parseQuizQuestionsFromText(raw: string): QuizQuestion[] {
   const text = (raw ?? "").trim();
   if (!text) throw new AiServiceError("invalid_request", "Invalid quiz response.");
 
-  const payloadText = extractJsonPayloadText(text);
+  const payloadText = extractJsonPayloadText(text, "array");
 
   let parsed: unknown;
   try {
@@ -256,7 +258,7 @@ export function parseGoalSuggestionsFromText(raw: string): GoalSuggestion[] {
   const text = (raw ?? "").trim();
   if (!text) throw new AiServiceError("invalid_request", "Invalid goal suggestion response.");
 
-  const payloadText = extractJsonPayloadText(text);
+  const payloadText = extractJsonPayloadText(text, "array");
 
   let parsed: unknown;
   try {
