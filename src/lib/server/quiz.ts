@@ -3,11 +3,11 @@ import { adminDb } from "@/lib/server/firebase-admin";
 import type { QuizQuestion, VideoQuizCache } from "@/types";
 
 function sharedQuizRef(playlistId: string, videoId: string) {
-  return adminDb.doc(`playlists/${playlistId}/videos/${videoId}/quiz`);
+  return adminDb.doc(`playlists/${playlistId}/videos/${videoId}/quiz/data`); // ✅ added /data
 }
 
 function personalQuizRef(ownerId: string, playlistId: string, videoId: string) {
-  return adminDb.doc(`users/${ownerId}/personalPlaylists/${playlistId}/videos/${videoId}/quiz`);
+  return adminDb.doc(`users/${ownerId}/personalPlaylists/${playlistId}/videos/${videoId}/quiz/data`); // ✅ added /data
 }
 
 async function getQuiz(ref: FirebaseFirestore.DocumentReference): Promise<VideoQuizCache | null> {

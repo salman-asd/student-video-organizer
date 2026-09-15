@@ -14,6 +14,7 @@ export async function generateVideoQuizForCurrentVideo(
   idToken: string,
   input: GenerateQuizInput,
 ): Promise<{ questions: QuizQuestion[] }> {
+  console.log(input)
   const res = await fetch("/api/ai/quiz/generate", {
     method: "POST",
     headers: {
@@ -22,7 +23,7 @@ export async function generateVideoQuizForCurrentVideo(
     },
     body: JSON.stringify(input),
   });
-
+  console.log(res)
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || `Quiz generation failed (${res.status})`);
   return { questions: Array.isArray(data.questions) ? data.questions : [] };

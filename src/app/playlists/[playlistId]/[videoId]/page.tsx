@@ -156,6 +156,7 @@ function PersonalVideoContent() {
         description: video.description || "",
         summary: summary || null,
       });
+      console.log(response)
       setQuizQuestions(response.questions || []);
       setSelectedAnswers({});
       setQuizSubmitted(false);

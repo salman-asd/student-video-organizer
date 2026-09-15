@@ -330,6 +330,20 @@ service cloud.firestore {
       }
     }
 
+    match /playlists/{playlistId}/videos/{videoId} {
+      match /quiz/{quizDoc} {
+        allow read: if isSignedIn() && isActive();
+        allow write: if false;
+      }
+    }
+
+    match /users/{uid}/personalPlaylists/{playlistId}/videos/{videoId} {
+      match /quiz/{quizDoc} {
+        allow read: if isSelf(uid) || isAdmin();
+        allow write: if false;
+      }
+    }
+
     match /shares/{shareToken} {
       // Owners need to read their own inactive records so the share dialog
       // can find and update an existing share after it was revoked/expired.
