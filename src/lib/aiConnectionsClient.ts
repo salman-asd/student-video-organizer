@@ -22,6 +22,8 @@ export interface UpdateAiConnectionInput {
   isActive?: boolean;
 }
 
+export interface AiModel { id: string; name: string; }
+
 async function parseOrThrow(res: Response): Promise<any> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
@@ -96,4 +98,23 @@ export async function testAiConnection(
 // connections sharing a priority.
 export async function reorderAiConnections(idToken: string, orderedIds: string[]): Promise<void> {
   await Promise.all(orderedIds.map((id, index) => updateAiConnection(idToken, id, { priority: index })));
+}
+
+/** 
+ * Fetch available models using the provider API key. 
+ * The API key is sent only to our server endpoint. 
+ * It is NOT sent directly from the browser to OpenRouter/Gemini/etc.
+ */
+export async function fetchAiModels(
+  idToken: string, 
+  provider: AiProvider, 
+  apiKey: string
+): Promise<AiModel[]> {
+  const res = await fetch("/api/ai/connections/models", { 
+    method: "POST", 
+    headers: authHeaders(idToken, true), 
+    body: JSON.stringify({ provider, apiKey, }), 
+  }); 
+  const data = await parseOrThrow(res); 
+  return (data.models || []) as AiModel[];
 }
