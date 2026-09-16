@@ -13,7 +13,7 @@ import type {
   QuizVideoInput,
   VideoSummaryInput,
 } from "./types";
-import type { RoadmapStep } from "@/types";
+import type { RoadmapLevel, RoadmapStep } from "@/types";
 import { sanitizeRoadmapSteps } from "@/lib/roadmapUtils";
 
 /**
@@ -80,6 +80,127 @@ Requirements:
 - Use realistic learning milestones for the category.
 - Keep descriptions concise but useful.
 - JSON must valid and parseable.`;
+}
+
+function roadmapStepsPrompt(input: { categoryName: string; level: RoadmapLevel; subtopics: string[] }): string {
+  const { categoryName, level, subtopics } = input;
+  const focus = subtopics.length > 0 ? subtopics.join(", ") : "all core sub-skills of this topic";
+  return `You are an expert curriculum designer creating a week-by-week study plan.
+
+Topic: "${categoryName}"
+Learner level: ${level}
+Specific focus areas requested by the learner: ${focus}
+
+Design a ${level}-level roadmap broken into WEEKS, not vague topic names. Use current, widely-accepted best practice for teaching this subject.
+
+Rules:
+- Return between 4 and 10 weeks for THIS level only — do not include other levels.
+- Each week builds on the previous one and stays within scope for a "${level}" learner.
+- Each week's description must include concrete, practical actions the learner can actually do that week (specific daily/weekly exercises), not just a topic label.
+- Stay strictly focused on: ${focus}.
+- Return JSON only — no prose, no markdown fences — in this exact shape:
+[
+  { "week": 1, "title": "string", "description": "string" },
+  { "week": 2, "title": "string", "description": "string" }
+]`;
+}
+
+function clarifyTopicPrompt(rawName: string): string {
+  return `A learner typed "${rawName}" as something they want to learn.
+
+If this term is short, ambiguous, or could mean several distinct learning topics (an abbreviation, a tool/language with several common learning angles, an overloaded word), propose 2 to 4 distinct, concrete interpretations.
+
+Return JSON only, no prose:
+{ "ambiguous": true, "options": [ { "label": "string", "description": "one sentence" } ] }
+or, if the term is already a clear, specific learning topic:
+{ "ambiguous": false }`;
+}
+
+export function parseRoadmapStepsFromText(raw: string): RoadmapStep[] {
+  const text = (raw ?? "").trim();
+  if (!text) throw new AiServiceError("invalid_request", "Invalid roadmap response.");
+  const payloadText = extractJsonPayloadText(text, "array");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadText);
+  } catch {
+    throw new AiServiceError("invalid_request", "Invalid roadmap response.");
+  }
+  if (!Array.isArray(parsed)) throw new AiServiceError("invalid_request", "Invalid roadmap response.");
+
+  const steps = sanitizeRoadmapSteps(
+    parsed.map((item, index) => {
+      const s = item as Record<string, unknown>;
+      const week = Number.isFinite(s.week) ? Number(s.week) : index + 1;
+      return {
+        title: String(s.title ?? "").trim(),
+        description: String(s.description ?? "").trim(),
+        order: week - 1,
+        week,
+      };
+    })
+  );
+
+  if (steps.length === 0) throw new AiServiceError("invalid_request", "Invalid roadmap response.");
+  return steps;
+}
+
+export async function generateRoadmapStepsForLevel(
+  connection: AiConnectionCredentials,
+  input: { categoryName: string; level: RoadmapLevel; subtopics: string[] }
+): Promise<RoadmapStep[]> {
+  const prompt = roadmapStepsPrompt(input);
+  let raw: string;
+  switch (connection.provider) {
+    case "gemini": raw = await generateWithGemini(connection, prompt); break;
+    case "openai": raw = await generateWithOpenAi(connection, prompt); break;
+    case "anthropic": raw = await generateWithAnthropic(connection, prompt); break;
+    case "openrouter": raw = await generateWithOpenRouter(connection, prompt); break;
+    case "groq": raw = await generateWithGroq(connection, prompt); break;
+    default:
+      const _exhaustive: never = connection.provider;
+      throw new AiServiceError("unsupported_provider", `Provider "${_exhaustive}" is not supported yet.`);
+  }
+  return parseRoadmapStepsFromText(raw);
+}
+
+export interface TopicClarification {
+  ambiguous: boolean;
+  options?: { label: string; description: string }[];
+}
+
+export function parseTopicClarificationFromText(raw: string): TopicClarification {
+  const text = (raw ?? "").trim();
+  if (!text) return { ambiguous: false };
+  try {
+    const parsed = JSON.parse(extractJsonPayloadText(text, "object")) as Record<string, unknown>;
+    if (parsed?.ambiguous !== true) return { ambiguous: false };
+    const options = Array.isArray(parsed.options)
+      ? (parsed.options as Record<string, unknown>[])
+        .map((o) => ({ label: String(o.label ?? "").trim(), description: String(o.description ?? "").trim() }))
+        .filter((o) => !!o.label)
+      : [];
+    return options.length > 0 ? { ambiguous: true, options } : { ambiguous: false };
+  } catch {
+    return { ambiguous: false };
+  }
+}
+
+export async function generateTopicClarification(connection: AiConnectionCredentials, rawName: string): Promise<TopicClarification> {
+  const prompt = clarifyTopicPrompt(rawName);
+  let raw: string;
+  switch (connection.provider) {
+    case "gemini": raw = await generateWithGemini(connection, prompt); break;
+    case "openai": raw = await generateWithOpenAi(connection, prompt); break;
+    case "anthropic": raw = await generateWithAnthropic(connection, prompt); break;
+    case "openrouter": raw = await generateWithOpenRouter(connection, prompt); break;
+    case "groq": raw = await generateWithGroq(connection, prompt); break;
+    default:
+      const _exhaustive: never = connection.provider;
+      throw new AiServiceError("unsupported_provider", `Provider "${_exhaustive}" is not supported yet.`);
+  }
+  return parseTopicClarificationFromText(raw);
 }
 
 function extractJsonPayloadText(raw: string, expectedRoot: "object" | "array"): string {

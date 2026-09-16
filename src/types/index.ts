@@ -169,6 +169,7 @@ export interface RoadmapStep {
   title: string;
   description: string;
   order: number;
+  week?: number;
 }
 
 export interface RoadmapTemplate {
@@ -184,6 +185,7 @@ export interface LearningRoadmap {
   categoryId: string;
   level: RoadmapLevel;
   steps: RoadmapStep[];
+  source?: "template" | "generated" | "imported";
   adoptedFromTemplateAt: Timestamp | null;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
