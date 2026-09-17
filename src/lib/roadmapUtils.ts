@@ -1,11 +1,26 @@
 import { addDays, format } from "date-fns";
 import type { RoadmapStep } from "@/types";
 
+/** Normalizes a step's optional `details` bullet list: accepts an array of
+ *  strings (or a single string, which we split into one bullet), trims each
+ *  entry and drops blanks. Returns `undefined` (never `[]` or `undefined`
+ *  items) so the field is simply absent when a step has no bullets — the
+ *  Admin SDK throws on `undefined`/empty values, same reason as `week`. */
+export function sanitizeRoadmapStepDetails(input: unknown): string[] | undefined {
+  if (input == null) return undefined;
+  const raw = Array.isArray(input) ? input : [input];
+  const details = raw
+    .map((item) => String(item ?? "").trim())
+    .filter((item) => item.length > 0);
+  return details.length > 0 ? details : undefined;
+}
+
 export function sanitizeRoadmapSteps(input: Array<Partial<RoadmapStep> | null | undefined>): RoadmapStep[] {
   const cleaned = (input ?? [])
     .filter((step): step is Partial<RoadmapStep> => !!step)
     .map((step) => {
       const hasWeek = Number.isFinite(step.week as number);
+      const details = sanitizeRoadmapStepDetails(step.details);
       const base = {
         title: String(step.title ?? "").trim(),
         description: String(step.description ?? "").trim(),
@@ -16,7 +31,8 @@ export function sanitizeRoadmapSteps(input: Array<Partial<RoadmapStep> | null | 
       // undefined fields) but the Admin SDK throws — "Cannot use
       // 'undefined' as a Firestore value" — since adoptRoadmapTemplateAdmin
       // and the generate route both write with the Admin SDK.
-      return hasWeek ? { ...base, week: Number(step.week) } : base;
+      const withWeek = hasWeek ? { ...base, week: Number(step.week) } : base;
+      return details ? { ...withWeek, details } : withWeek;
     })
     .filter((step) => !!step.title && step.title.length > 0)
     .sort((a, b) => {
@@ -41,13 +57,16 @@ export function sanitizeRoadmapSteps(input: Array<Partial<RoadmapStep> | null | 
  */
 export function renumberSteps(steps: RoadmapStep[]): RoadmapStep[] {
   return steps.map((step, index) => {
+    const details = sanitizeRoadmapStepDetails(step.details);
     const base = {
       title: step.title,
       description: step.description || "",
       order: index,
     };
-    // Same rule as sanitizeRoadmapSteps: never emit `week: undefined`.
-    return Number.isFinite(step.week as number) ? { ...base, week: Number(step.week) } : base;
+    // Same rule as sanitizeRoadmapSteps: never emit `week: undefined` (or an
+    // empty/undefined `details` array) — the Admin SDK rejects them.
+    const withWeek = Number.isFinite(step.week as number) ? { ...base, week: Number(step.week) } : base;
+    return details ? { ...withWeek, details } : withWeek;
   });
 }
 
@@ -93,6 +112,7 @@ export function parseImportedRoadmapText(text: string): RoadmapStep[] {
           .map((item: any, index: number) => ({
             title: String(item?.title ?? "").trim(),
             description: String(item?.description ?? "").trim(),
+            details: sanitizeRoadmapStepDetails(item?.details),
             order: index,
             week: Number.isFinite(item?.week) ? Number(item.week) : undefined,
           }))

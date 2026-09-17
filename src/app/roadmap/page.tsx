@@ -27,7 +27,7 @@ import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { Category, LearningRoadmap, RoadmapLevel, RoadmapStep, UserInterest } from "@/types";
 import {
-  Check, Sparkles, PencilLine, GripVertical, Plus, Trash2, Youtube, Target, X, Import, Copy, Eye,
+  Check, Sparkles, PencilLine, GripVertical, Plus, Trash2, Youtube, Target, X, Import, Copy, Eye, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -153,6 +153,30 @@ function RoadmapContent() {
   }
 
   const interestCards = categories.filter((category) => interests.some((interest) => interest.categoryId === category.id));
+
+  // Multiple roadmaps on one page means a LOT of scrolling, so each panel is
+  // collapsible. With only one interest the panel opens by default (nothing to
+  // scroll past); with two or more they all start collapsed so the page height
+  // matches what you're actually looking at. `expandedIds` tracks what's open;
+  // any category not yet in it falls back to that default, which also handles
+  // interests being added later without resetting what you already opened.
+  const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
+  const defaultExpanded = interestCards.length <= 1;
+  const isExpanded = (categoryId: string) => expandedIds.has(categoryId) || (defaultExpanded && !expandedIds.has(`closed:${categoryId}`));
+  const toggleExpanded = (categoryId: string) => {
+    setExpandedIds((prev) => {
+      const wasExpanded = prev.has(categoryId) || (defaultExpanded && !prev.has(`closed:${categoryId}`));
+      const next = new Set(prev);
+      if (wasExpanded) {
+        next.delete(categoryId);
+        next.add(`closed:${categoryId}`);
+      } else {
+        next.delete(`closed:${categoryId}`);
+        next.add(categoryId);
+      }
+      return next;
+    });
+  };
 
   // Before creating a brand-new interest, ask the AI whether the typed
   // name is ambiguous (e.g. "C#" — language track vs. game-dev vs. web).
@@ -291,28 +315,73 @@ function RoadmapContent() {
           </Card>
         )}
 
+        {/* Quick-jump bar: with several roadmap panels the page gets tall, so
+            this stays stuck under the top of the viewport and scrolls you
+            straight to the interest you want instead of hunting for it. */}
+        {interestCards.length > 1 && (
+          <div className="sticky top-2 z-20 -mx-1 overflow-x-auto rounded-md border-border bg-background/95 px-2 py-2 shadow-sm backdrop-blur">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Jump to</span>
+              {interestCards.map((category) => (
+                <Button
+                  key={category.id}
+                  size="sm"
+                  variant="outline"
+                  onClick={() => document.getElementById(`interest-${category.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                >
+                  {category.name}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="space-y-4">
           {interestCards.map((category) => {
             const matchedInterest = interests.find((interest) => interest.categoryId === category.id);
             const level = matchedInterest?.level ?? "basic";
             const personal = personalRoadmaps[category.id] ?? [];
             const activeRoadmap = personal.find((item) => item.level === level);
+            const expanded = isExpanded(category.id);
+            // Which levels already have their own roadmap (they're stored
+            // separately per category+level) — surfaced as dots on the level
+            // buttons so you can see it without opening each one.
+            const levelsWithRoadmap = new Set(personal.map((item) => item.level));
 
             return (
-              <Card key={category.id}>
+              <Card key={category.id} id={`interest-${category.id}`} className="scroll-mt-20">
                 <CardContent className="space-y-4 p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <h2 className="font-display text-xl font-semibold">{category.name}</h2>
-                      <p className="text-sm text-muted-foreground">Current level: {level}</p>
-                      {matchedInterest?.subtopics?.length ? (
-                        <p className="text-xs text-muted-foreground">Focus: {matchedInterest.subtopics.join(", ")}</p>
-                      ) : null}
-                      <FocusEditor
-                        categoryName={category.name}
-                        currentSubtopics={matchedInterest?.subtopics ?? []}
-                        onSave={(subtopics) => saveFocus(category.id, subtopics)}
-                      />
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-2">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0"
+                        aria-expanded={expanded}
+                        aria-label={expanded ? `Collapse ${category.name}` : `Expand ${category.name}`}
+                        onClick={() => toggleExpanded(category.id)}
+                      >
+                        {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </Button>
+                      <div>
+                        <h2 className="font-display text-xl font-semibold">{category.name}</h2>
+                        <p className="text-sm text-muted-foreground">Current level: {level}</p>
+                        {matchedInterest?.subtopics?.length ? (
+                          <p className="text-xs text-muted-foreground">Focus: {matchedInterest.subtopics.join(", ")}</p>
+                        ) : null}
+                        {!expanded && (
+                          <p className="text-xs text-muted-foreground">
+                            {activeRoadmap?.steps?.length
+                              ? `${activeRoadmap.steps.length} step${activeRoadmap.steps.length === 1 ? "" : "s"} at this level — expand to view.`
+                              : "No roadmap at this level yet — expand to generate one."}
+                          </p>
+                        )}
+                        <FocusEditor
+                          categoryName={category.name}
+                          currentSubtopics={matchedInterest?.subtopics ?? []}
+                          onSave={(subtopics) => saveFocus(category.id, subtopics)}
+                        />
+                      </div>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {(["basic", "intermediate", "advanced"] as RoadmapLevel[]).map((nextLevel) => (
@@ -320,22 +389,31 @@ function RoadmapContent() {
                           key={nextLevel}
                           size="sm"
                           variant={nextLevel === level ? "default" : "outline"}
+                          title={levelsWithRoadmap.has(nextLevel) ? `A ${nextLevel} roadmap already exists` : `No ${nextLevel} roadmap yet`}
                           onClick={() => void setActiveLevel(category.id, nextLevel)}
                         >
                           {nextLevel === level && <Check className="mr-1 h-3.5 w-3.5" />} {nextLevel}
+                          {levelsWithRoadmap.has(nextLevel) && (
+                            <span
+                              className={`ml-1 inline-block h-1.5 w-1.5 rounded-full ${nextLevel === level ? "bg-primary-foreground" : "bg-accent"}`}
+                              aria-hidden="true"
+                            />
+                          )}
                         </Button>
                       ))}
                     </div>
                   </div>
 
-                  <RoadmapPanel
-                    category={category}
-                    level={level}
-                    subtopics={matchedInterest?.subtopics ?? []}
-                    roadmap={activeRoadmap}
-                    onGenerateOrRegenerate={() => generateOrRegenerate(category.id, level, activeRoadmap)}
-                    onSaveSteps={(steps) => saveRoadmapSteps(category.id, level, activeRoadmap, steps)}
-                  />
+                  {expanded && (
+                    <RoadmapPanel
+                      category={category}
+                      level={level}
+                      subtopics={matchedInterest?.subtopics ?? []}
+                      roadmap={activeRoadmap}
+                      onGenerateOrRegenerate={() => generateOrRegenerate(category.id, level, activeRoadmap)}
+                      onSaveSteps={(steps) => saveRoadmapSteps(category.id, level, activeRoadmap, steps)}
+                    />
+                  )}
                 </CardContent>
               </Card>
             );
@@ -557,17 +635,33 @@ function RoadmapPanel({
             <Sparkles className="mr-1 h-3.5 w-3.5" /> {generating ? "Generating…" : hasSteps ? "Regenerate" : "Generate"}
           </Button>
           <Button size="sm" variant="outline" onClick={() => void togglePrompt()}>
-            <Copy className="mr-1 h-3.5 w-3.5" /> Copy prompt
+            {promptOpen ? (
+              <><X className="mr-1 h-3.5 w-3.5" /> Hide prompt</>
+            ) : (
+              <><Copy className="mr-1 h-3.5 w-3.5" /> Copy prompt</>
+            )}
           </Button>
         </div>
       </div>
 
       {promptOpen && (
         <div className="space-y-2 rounded-md border border-border bg-background p-3">
-          <p className="text-xs text-muted-foreground">
-            This is the exact prompt Study Lamp would send to generate this roadmap. Copy it, run it in any AI
-            assistant, then switch to <strong>Customize</strong> and paste the reply in to use it here.
-          </p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              This is the exact prompt Study Lamp would send to generate this roadmap. Copy it, run it in any AI
+              assistant, then switch to <strong>Customize</strong> and paste the reply in to use it here.
+            </p>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6 shrink-0"
+              aria-label="Close prompt"
+              title="Close prompt"
+              onClick={() => setPromptOpen(false)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
           {promptLoading ? (
             <p className="text-xs text-muted-foreground">Building prompt…</p>
           ) : (
@@ -615,10 +709,24 @@ function RoadmapView({ roadmap }: { roadmap: LearningRoadmap | undefined }) {
               {step.title}
             </div>
             {step.description && <p className="text-muted-foreground">{step.description}</p>}
+            <StepDetails details={step.details} />
           </div>
         </li>
       ))}
     </ol>
+  );
+}
+
+// ── A step's bullet list, rendered as a real list when present. ──
+
+function StepDetails({ details }: { details?: string[] }) {
+  if (!details || details.length === 0) return null;
+  return (
+    <ul className="mt-1 list-disc space-y-0.5 pl-5 text-muted-foreground">
+      {details.map((detail, index) => (
+        <li key={index}>{detail}</li>
+      ))}
+    </ul>
   );
 }
 
@@ -641,7 +749,7 @@ function RoadmapEditor({
   const steps = roadmap?.steps ?? [];
 
   const [editingIndex, setEditingIndex] = React.useState<number | null>(null);
-  const [draft, setDraft] = React.useState<{ title: string; description: string }>({ title: "", description: "" });
+  const [draft, setDraft] = React.useState<{ title: string; description: string; details: string }>({ title: "", description: "", details: "" });
 
   const [playlistResults, setPlaylistResults] = React.useState<Record<number, YouTubePlaylistSearchResult[]>>({});
   const [playlistLoading, setPlaylistLoading] = React.useState<number | null>(null);
@@ -667,7 +775,11 @@ function RoadmapEditor({
 
   function startEdit(index: number, step: RoadmapStep) {
     setEditingIndex(index);
-    setDraft({ title: step.title, description: step.description || "" });
+    setDraft({
+      title: step.title,
+      description: step.description || "",
+      details: (step.details ?? []).join("\n"),
+    });
   }
 
   function commitEdit(index: number) {
@@ -676,7 +788,14 @@ function RoadmapEditor({
       toast.error("A step needs a title.");
       return;
     }
-    const nextSteps = steps.map((step, i) => (i === index ? { ...step, title, description: draft.description.trim() } : step));
+    const details = draft.details.split("\n").map((line) => line.trim()).filter(Boolean);
+    const nextSteps = steps.map((step, i) => {
+      if (i !== index) return step;
+      const { details: _oldDetails, ...rest } = step;
+      return details.length > 0
+        ? { ...rest, title, description: draft.description.trim(), details }
+        : { ...rest, title, description: draft.description.trim() };
+    });
     onSaveSteps(nextSteps);
     setEditingIndex(null);
   }
@@ -690,7 +809,7 @@ function RoadmapEditor({
   }
 
   function addStep() {
-    onSaveSteps([...steps, { title: "New step", description: "", order: steps.length }]);
+    onSaveSteps([...steps, { title: "New step", description: "", details: [], order: steps.length }]);
   }
 
   function reorderSteps(nextSteps: RoadmapStep[]) {
@@ -826,6 +945,13 @@ function RoadmapEditor({
                       placeholder="What does this step cover?"
                       rows={2}
                     />
+                    <Textarea
+                      value={draft.details}
+                      onChange={(e) => setDraft((d) => ({ ...d, details: e.target.value }))}
+                      placeholder={"One concrete action per line, e.g.\nPractice 10 phrases a day with Anki"}
+                      rows={3}
+                      className="text-xs"
+                    />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => commitEdit(index)}>Save</Button>
                       <Button size="sm" variant="ghost" onClick={() => setEditingIndex(null)}>Cancel</Button>
@@ -838,6 +964,7 @@ function RoadmapEditor({
                       {step.title}
                     </div>
                     {step.description && <p className="text-muted-foreground">{step.description}</p>}
+                    <StepDetails details={step.details} />
                   </button>
                 )}
 

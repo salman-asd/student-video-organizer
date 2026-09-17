@@ -14,7 +14,7 @@ import type {
   VideoSummaryInput,
 } from "./types";
 import type { RoadmapLevel, RoadmapStep } from "@/types";
-import { sanitizeRoadmapSteps } from "@/lib/roadmapUtils";
+import { sanitizeRoadmapStepDetails, sanitizeRoadmapSteps } from "@/lib/roadmapUtils";
 
 /**
  * Application-facing AI API. This is the ONLY module that video/summary
@@ -96,12 +96,17 @@ Design a ${level}-level roadmap broken into WEEKS, not vague topic names. Use cu
 Rules:
 - Return between 4 and 10 weeks for THIS level only — do not include other levels.
 - Each week builds on the previous one and stays within scope for a "${level}" learner.
-- Each week's description must include concrete, practical actions the learner can actually do that week (specific daily/weekly exercises), not just a topic label.
+- Each week's "description" is ONE short sentence, and its "details" MUST contain at least one concrete example — a specific tool, exercise, or resource the learner would actually use that week. 2 to 4 details per week, kept short.
+- Never leave a week with an empty "details" array.
 - Stay strictly focused on: ${focus}.
 - Return JSON only — no prose, no markdown fences — in this exact shape:
 [
-  { "week": 1, "title": "string", "description": "string" },
-  { "week": 2, "title": "string", "description": "string" }
+  {
+    "week": 1,
+    "title": "string",
+    "description": "one short sentence introducing the week",
+    "details": ["a specific concrete example, tool, or exercise", "another concrete action for the week"]
+  }
 ]`;
 }
 
@@ -136,6 +141,7 @@ export function parseRoadmapStepsFromText(raw: string): RoadmapStep[] {
       return {
         title: String(s.title ?? "").trim(),
         description: String(s.description ?? "").trim(),
+        details: sanitizeRoadmapStepDetails(s.details),
         order: week - 1,
         week,
       };

@@ -168,6 +168,10 @@ export type RoadmapLevel = "basic" | "intermediate" | "advanced";
 export interface RoadmapStep {
   title: string;
   description: string;
+  /** Optional bullet points that break the step into concrete actions/checkpoints.
+   *  Rendered as a real <ul> under the description. Free-form; AI-generated steps
+   *  are asked to always provide at least one bullet. */
+  details?: string[];
   order: number;
   week?: number;
 }
