@@ -8,17 +8,11 @@ import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SortableList } from "@/components/dnd/SortableList";
 import { createCategory, listCategories } from "@/lib/firestore/categoriesTags";
-import {
-  getRoadmapTemplate,
-  listLearningRoadmaps,
-  updateLearningRoadmap,
-  createLearningRoadmap,
-} from "@/lib/firestore/roadmaps";
+import { listLearningRoadmaps, updateLearningRoadmap, createLearningRoadmap } from "@/lib/firestore/roadmaps";
 import { addGoal } from "@/lib/firestore/goals";
 import { normalizeUserInterests, setUserInterestLevel } from "@/lib/userInterests";
 import {
@@ -31,8 +25,10 @@ import { searchPlaylistsForStep, type YouTubePlaylistSearchResult } from "@/lib/
 import { suggestGoalsFromRoadmap, type GoalSuggestion } from "@/lib/goalSuggestionsClient";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { Category, LearningRoadmap, RoadmapLevel, RoadmapStep, RoadmapTemplate, UserInterest } from "@/types";
-import { Check, Sparkles, PencilLine, GripVertical, Plus, Trash2, Youtube, Target, X, Import } from "lucide-react";
+import type { Category, LearningRoadmap, RoadmapLevel, RoadmapStep, UserInterest } from "@/types";
+import {
+  Check, Sparkles, PencilLine, GripVertical, Plus, Trash2, Youtube, Target, X, Import, Copy, Eye,
+} from "lucide-react";
 import { toast } from "sonner";
 
 export default function RoadmapPage() {
@@ -47,7 +43,6 @@ function RoadmapContent() {
   const { user } = useAuth();
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [interests, setInterests] = React.useState<UserInterest[]>([]);
-  const [templates, setTemplates] = React.useState<Record<string, RoadmapTemplate[]>>({});
   const [personalRoadmaps, setPersonalRoadmaps] = React.useState<Record<string, LearningRoadmap[]>>({});
   const [loading, setLoading] = React.useState(true);
 
@@ -63,16 +58,6 @@ function RoadmapContent() {
       const profileInterests = normalizeUserInterests(((profileSnap.data() as any)?.interests ?? []) as UserInterest[]);
       setCategories(nextCategories);
       setInterests(profileInterests);
-      const nextTemplates: Record<string, RoadmapTemplate[]> = {};
-      for (const category of nextCategories) {
-        const entries = await Promise.all([
-          getRoadmapTemplate(category.id, "basic"),
-          getRoadmapTemplate(category.id, "intermediate"),
-          getRoadmapTemplate(category.id, "advanced"),
-        ]).then((items) => items.filter((item): item is RoadmapTemplate => !!item));
-        nextTemplates[category.id] = entries;
-      }
-      setTemplates(nextTemplates);
       const byCategory: Record<string, LearningRoadmap[]> = {};
       for (const roadmap of nextRoadmaps) {
         byCategory[roadmap.categoryId] = [...(byCategory[roadmap.categoryId] || []), roadmap];
@@ -87,13 +72,11 @@ function RoadmapContent() {
 
   React.useEffect(() => { load(); }, [load]);
 
-  // Generates ONE level's roadmap. If the interest has subtopics set (a
-  // "focus"), the result is personalized and gets written straight into
-  // the user's own learningRoadmaps by the API route — never into the
-  // shared roadmapTemplates doc, since that doc is global and would leak
-  // one user's focus into everyone else's copy of this category. Returns
-  // the parsed payload so callers (activateLevel) can tell which path ran.
-  async function generateTemplate(categoryId: string, level: RoadmapLevel) {
+  // Every category+level has exactly ONE roadmap doc per user. This
+  // single function handles both "Generate" (roadmap is undefined) and
+  // "Regenerate" (roadmap already exists) — the API route upserts either
+  // way, so the caller never has to think about which case it is.
+  async function generateOrRegenerate(categoryId: string, level: RoadmapLevel, roadmap: LearningRoadmap | undefined) {
     if (!user) return;
     const category = categories.find((item) => item.id === categoryId);
     const matchedInterest = interests.find((item) => item.categoryId === categoryId);
@@ -107,123 +90,65 @@ function RoadmapContent() {
           categoryName: category?.name || "Learning topic",
           level,
           subtopics: matchedInterest?.subtopics ?? [],
+          roadmapId: roadmap?.id,
         }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Unable to generate this roadmap.");
       await load();
-      toast.success(`${level[0].toUpperCase()}${level.slice(1)} roadmap generated.`);
-      return payload as { personalized?: boolean; roadmapId?: string };
+      toast.success(roadmap ? "Roadmap regenerated." : `${level[0].toUpperCase()}${level.slice(1)} roadmap generated.`);
     } catch (error: any) {
       toast.error(error?.message || "Unable to generate the roadmap.");
-      throw error;
     }
   }
 
-  async function regenerateRoadmap(categoryId: string, level: RoadmapLevel, roadmapId: string) {
+  // Switching level is just a preference change now — no roadmap is
+  // created as a side effect. If the newly selected level has no roadmap
+  // yet, the panel shows its own empty state with Generate/Customize.
+  async function setActiveLevel(categoryId: string, level: RoadmapLevel) {
     if (!user) return;
-    const category = categories.find((item) => item.id === categoryId);
-    const matchedInterest = interests.find((item) => item.categoryId === categoryId);
     try {
-      const idToken = await user.getIdToken();
-      const response = await fetch("/api/ai/roadmap/generate", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          categoryId,
-          categoryName: category?.name || "Learning topic",
-          level,
-          subtopics: matchedInterest?.subtopics ?? [],
-          roadmapId, // tells the API to overwrite this roadmap instead of creating a new one
-        }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || "Unable to regenerate this roadmap.");
+      const profileSnap = await getDoc(doc(db, "users", user.uid));
+      const existing = normalizeUserInterests(((profileSnap.data() as any)?.interests ?? []) as UserInterest[]);
+      const next = setUserInterestLevel(existing, categoryId, level);
+      await updateDoc(doc(db, "users", user.uid), { interests: next });
       await load();
-      toast.success("Roadmap regenerated to match your current focus.");
     } catch (error: any) {
-      toast.error(error?.message || "Unable to regenerate the roadmap.");
+      toast.error(error?.message || "Unable to switch level.");
     }
   }
 
-  // Shared tail of activateLevel: records the chosen level on the user's
-  // interest profile once a roadmap (template-adopted, generated, or
-  // imported) exists for it.
-  async function finishActivatingLevel(categoryId: string, level: RoadmapLevel) {
-    if (!user) return;
-    const profileSnap = await getDoc(doc(db, "users", user.uid));
-    const existing = normalizeUserInterests(((profileSnap.data() as any)?.interests ?? []) as UserInterest[]);
-    const next = setUserInterestLevel(existing, categoryId, level);
-    await updateDoc(doc(db, "users", user.uid), { interests: next });
-    await load();
-    toast.success(`You're now learning ${level}.`);
-  }
-
-  async function activateLevel(categoryId: string, level: RoadmapLevel, hasRetried = false) {
-    if (!user) return;
-    try {
-      const idToken = await user.getIdToken();
-      const res = await fetch("/api/roadmaps/adopt", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ categoryId, level }),
-      });
-      const payload = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        if (res.status === 404 && !hasRetried) {
-          // No shared template exists yet for this level. Generate one —
-          // if the user has a focus set, generation writes the personal
-          // roadmap directly and there's nothing left to "adopt"; otherwise
-          // it fills the shared template and we retry adopt against it.
-          const generated = await generateTemplate(categoryId, level);
-          if (generated?.personalized) {
-            await finishActivatingLevel(categoryId, level);
-            return;
-          }
-          return activateLevel(categoryId, level, true);
-        }
-        throw new Error(payload?.error || "Unable to adopt this roadmap.");
-      }
-      await finishActivatingLevel(categoryId, level);
-    } catch (error: any) {
-      toast.error(error?.message || "Unable to save your roadmap choice.");
-    }
-  }
-
-  // Lets a user seed a level directly from pasted text (their own manual
-  // roadmap, or one exported from another AI tool) without calling the AI
-  // at all. Used both for a brand-new interest (no roadmap yet) and to
-  // replace an existing personal roadmap's steps (see PersonalRoadmapEditor).
-  async function importRoadmap(categoryId: string, level: RoadmapLevel, steps: RoadmapStep[]) {
-    if (!user) return;
-    if (steps.length === 0) {
-      toast.error("Couldn't find any steps in that text — try JSON or a numbered list.");
-      return;
-    }
-    try {
-      await createLearningRoadmap(user.uid, categoryId, level, steps, "imported");
-      await finishActivatingLevel(categoryId, level);
-    } catch (error: any) {
-      toast.error(error?.message || "Unable to import this roadmap.");
-    }
-  }
-
-  async function saveRoadmapSteps(categoryId: string, roadmapId: string, steps: RoadmapStep[]) {
+  // Saves an edited/added/removed/reordered/imported step list. Creates
+  // the roadmap doc on first save if none exists yet (this is how
+  // "Customize" on an empty roadmap works — write your own from scratch).
+  async function saveRoadmapSteps(categoryId: string, level: RoadmapLevel, roadmap: LearningRoadmap | undefined, steps: RoadmapStep[]) {
     if (!user) return;
     const normalized = renumberSteps(steps);
-    setPersonalRoadmaps((prev) => {
-      const list = prev[categoryId] || [];
-      return {
-        ...prev,
-        [categoryId]: list.map((item) => (item.id === roadmapId ? { ...item, steps: normalized } : item)),
-      };
-    });
+
+    if (roadmap) {
+      setPersonalRoadmaps((prev) => {
+        const list = prev[categoryId] || [];
+        return {
+          ...prev,
+          [categoryId]: list.map((item) => (item.id === roadmap.id ? { ...item, steps: normalized } : item)),
+        };
+      });
+      try {
+        await updateLearningRoadmap(user.uid, roadmap.id, normalized);
+      } catch (error: any) {
+        toast.error(error?.message || "Unable to save your roadmap edit.");
+        await load();
+      }
+      return;
+    }
+
+    if (normalized.length === 0) return; // nothing to create yet
     try {
-      await updateLearningRoadmap(user.uid, roadmapId, normalized);
-    } catch (error: any) {
-      toast.error(error?.message || "Unable to save your roadmap edit.");
+      await createLearningRoadmap(user.uid, categoryId, level, normalized, "imported");
       await load();
+      toast.success("Roadmap created.");
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to create your roadmap.");
     }
   }
 
@@ -231,9 +156,8 @@ function RoadmapContent() {
 
   // Before creating a brand-new interest, ask the AI whether the typed
   // name is ambiguous (e.g. "C#" — language track vs. game-dev vs. web).
-  // If so, surface options and wait for the user's pick instead of
-  // silently guessing. Clarify is best-effort: any failure just falls
-  // through to creating the interest as typed.
+  // Clarify is best-effort: any failure just falls through to creating
+  // the interest as typed.
   const [clarifyOptions, setClarifyOptions] = React.useState<{ label: string; description: string }[] | null>(null);
   const [clarifyPendingName, setClarifyPendingName] = React.useState("");
 
@@ -245,7 +169,7 @@ function RoadmapContent() {
       const res = await fetch("/api/ai/roadmap/clarify", {
         method: "POST",
         headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
+        body: JSON.stringify({ name: trimmed, kind: "topic" }),
       });
       const result = await res.json().catch(() => ({ ambiguous: false }));
       if (res.ok && result?.ambiguous && result.options?.length) {
@@ -279,6 +203,22 @@ function RoadmapContent() {
     }
   }
 
+  async function saveFocus(categoryId: string, subtopics: string[]) {
+    if (!user) return;
+    try {
+      const profileSnap = await getDoc(doc(db, "users", user.uid));
+      const existing = normalizeUserInterests(((profileSnap.data() as any)?.interests ?? []) as UserInterest[]);
+      const next = existing.map((interest) =>
+        interest.categoryId === categoryId ? { ...interest, subtopics } : interest
+      );
+      await updateDoc(doc(db, "users", user.uid), { interests: next });
+      await load();
+      toast.success("Focus updated. Regenerate to reflect it in your roadmap.");
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to update your focus.");
+    }
+  }
+
   const [newInterestName, setNewInterestName] = React.useState("");
 
   return (
@@ -287,7 +227,7 @@ function RoadmapContent() {
         <div className="space-y-2">
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-accent">Roadmap</p>
           <h1 className="font-display text-3xl font-semibold">Your learning path</h1>
-          <p className="text-muted-foreground">Choose a level for each interest and keep a personal copy of the roadmap you’re following.</p>
+          <p className="text-muted-foreground">Choose a level for each interest and keep a personal, editable roadmap for it.</p>
         </div>
 
         {loading && <p className="text-sm text-muted-foreground">Loading roadmap data…</p>}
@@ -355,12 +295,8 @@ function RoadmapContent() {
           {interestCards.map((category) => {
             const matchedInterest = interests.find((interest) => interest.categoryId === category.id);
             const level = matchedInterest?.level ?? "basic";
-            // Only this category's templates for the CURRENTLY SELECTED
-            // level — previously this rendered basic+intermediate+advanced
-            // stacked together regardless of which level was active.
-            const levelTemplates = (templates[category.id] ?? []).filter((t) => t.level === level);
             const personal = personalRoadmaps[category.id] ?? [];
-            const activeRoadmap = personal.find((item) => item.level === level) || personal[0];
+            const activeRoadmap = personal.find((item) => item.level === level);
 
             return (
               <Card key={category.id}>
@@ -373,9 +309,9 @@ function RoadmapContent() {
                         <p className="text-xs text-muted-foreground">Focus: {matchedInterest.subtopics.join(", ")}</p>
                       ) : null}
                       <FocusEditor
-                        categoryId={category.id}
+                        categoryName={category.name}
                         currentSubtopics={matchedInterest?.subtopics ?? []}
-                        onSaved={load}
+                        onSave={(subtopics) => saveFocus(category.id, subtopics)}
                       />
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -384,7 +320,7 @@ function RoadmapContent() {
                           key={nextLevel}
                           size="sm"
                           variant={nextLevel === level ? "default" : "outline"}
-                          onClick={() => void activateLevel(category.id, nextLevel)}
+                          onClick={() => void setActiveLevel(category.id, nextLevel)}
                         >
                           {nextLevel === level && <Check className="mr-1 h-3.5 w-3.5" />} {nextLevel}
                         </Button>
@@ -392,52 +328,14 @@ function RoadmapContent() {
                     </div>
                   </div>
 
-                  {levelTemplates.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground"><Sparkles className="h-4 w-4 text-accent" /> Suggested roadmap</div>
-                      {levelTemplates.map((template) => (
-                        <div key={template.id} className="rounded-md border border-border p-3">
-                          <div className="mb-2 flex items-center justify-between gap-2">
-                            <Badge variant="secondary">{template.level}</Badge>
-                            {template.steps.length > 0 ? <span className="text-xs text-muted-foreground">{template.steps.length} steps</span> : null}
-                          </div>
-                          <ol className="space-y-2">
-                            {template.steps.slice(0, 4).map((step, index) => (
-                              <li key={`${template.id}-${index}`} className="flex gap-2 text-sm">
-                                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/10 text-[10px] font-semibold text-accent">
-                                  {step.week ?? index + 1}
-                                </span>
-                                <div>
-                                  <div className="font-medium">
-                                    {step.week ? <span className="text-muted-foreground">Week {step.week} — </span> : null}
-                                    {step.title}
-                                  </div>
-                                  {step.description && <p className="text-muted-foreground">{step.description}</p>}
-                                </div>
-                              </li>
-                            ))}
-                          </ol>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {activeRoadmap ? (
-                    <PersonalRoadmapEditor
-                      category={category}
-                      level={level}
-                      roadmap={activeRoadmap}
-                      onSaveSteps={(steps) => void saveRoadmapSteps(category.id, activeRoadmap.id, steps)}
-                      onRegenerate={() => void regenerateRoadmap(category.id, level, activeRoadmap.id)}
-                    />
-                  ) : (
-                    <NoPersonalRoadmapYet
-                      hasSuggested={levelTemplates.length > 0}
-                      onAdopt={() => void activateLevel(category.id, level)}
-                      onGenerate={() => void generateTemplate(category.id, level)}
-                      onImport={(steps) => void importRoadmap(category.id, level, steps)}
-                    />
-                  )}
+                  <RoadmapPanel
+                    category={category}
+                    level={level}
+                    subtopics={matchedInterest?.subtopics ?? []}
+                    roadmap={activeRoadmap}
+                    onGenerateOrRegenerate={() => generateOrRegenerate(category.id, level, activeRoadmap)}
+                    onSaveSteps={(steps) => saveRoadmapSteps(category.id, level, activeRoadmap, steps)}
+                  />
                 </CardContent>
               </Card>
             );
@@ -448,103 +346,67 @@ function RoadmapContent() {
   );
 }
 
-function NoPersonalRoadmapYet({
-  hasSuggested,
-  onAdopt,
-  onGenerate,
-  onImport,
-}: {
-  hasSuggested: boolean;
-  onAdopt: () => void;
-  onGenerate: () => void;
-  onImport: (steps: RoadmapStep[]) => void;
-}) {
-  const [importOpen, setImportOpen] = React.useState(false);
-  const [importText, setImportText] = React.useState("");
-
-  function submitImport() {
-    const parsed = parseImportedRoadmapText(importText);
-    onImport(parsed);
-    if (parsed.length > 0) {
-      setImportOpen(false);
-      setImportText("");
-    }
-  }
-
-  return (
-    <div className="space-y-3 rounded-md border border-dashed border-border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-sm text-muted-foreground">
-          {hasSuggested ? "You haven't started this level yet." : "No roadmap yet for this level."}
-        </span>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => setImportOpen((v) => !v)}>
-            <Import className="mr-1 h-3.5 w-3.5" /> Create custom roadmap
-          </Button>
-          {hasSuggested ? (
-            <Button size="sm" onClick={onAdopt}>Use this roadmap</Button>
-          ) : (
-            <Button size="sm" onClick={onGenerate}>Generate</Button>
-          )}
-        </div>
-      </div>
-      {importOpen && (
-        <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">
-            Paste a roadmap you already have — JSON like <code>{"[{title, description, week}]"}</code>, or a plain numbered list, one step per line.
-          </p>
-          <Textarea
-            value={importText}
-            onChange={(e) => setImportText(e.target.value)}
-            rows={6}
-            placeholder={"Week 1: Basic greetings — practice 10 phrases daily\nWeek 2: ..."}
-          />
-          <div className="flex gap-2">
-            <Button size="sm" onClick={submitImport}>Use this roadmap</Button>
-            <Button size="sm" variant="ghost" onClick={() => setImportOpen(false)}>Cancel</Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Focus editor: lets a user say WHAT within a topic they want (e.g.
-// "Speaking, Writing" for English) so roadmap generation can target it. ──
+// "Speaking, Writing" for English), with ambiguity clarification since a
+// focus itself can be too broad (e.g. "English" alone could mean
+// Literature, Grammar, IELTS prep, or Spoken English). ──
 
 function FocusEditor({
-  categoryId,
+  categoryName,
   currentSubtopics,
-  onSaved,
+  onSave,
 }: {
-  categoryId: string;
+  categoryName: string;
   currentSubtopics: string[];
-  onSaved: () => void;
+  onSave: (subtopics: string[]) => void;
 }) {
   const { user } = useAuth();
   const [editing, setEditing] = React.useState(false);
   const [value, setValue] = React.useState(currentSubtopics.join(", "));
+  const [checking, setChecking] = React.useState(false);
+  const [clarifyOptions, setClarifyOptions] = React.useState<{ label: string; description: string }[] | null>(null);
 
   React.useEffect(() => {
     setValue(currentSubtopics.join(", "));
   }, [currentSubtopics]);
 
-  async function save() {
-    if (!user) return;
-    const subtopics = value.split(",").map((s) => s.trim()).filter(Boolean);
-    try {
-      const profileSnap = await getDoc(doc(db, "users", user.uid));
-      const existing = normalizeUserInterests(((profileSnap.data() as any)?.interests ?? []) as UserInterest[]);
-      const next = existing.map((interest) =>
-        interest.categoryId === categoryId ? { ...interest, subtopics } : interest
-      );
-      await updateDoc(doc(db, "users", user.uid), { interests: next });
+  async function commit(rawValue: string) {
+    const subtopics = rawValue.split(",").map((s) => s.trim()).filter(Boolean);
+    if (subtopics.length === 0) {
       setEditing(false);
-      onSaved();
-      toast.success("Focus updated. Regenerate this level to reflect it.");
-    } catch (error: any) {
-      toast.error(error?.message || "Unable to update your focus.");
+      setClarifyOptions(null);
+      onSave([]);
+      return;
     }
+    if (!user) return;
+    setChecking(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/ai/roadmap/clarify", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: subtopics.join(", "), context: categoryName, kind: "focus" }),
+      });
+      const result = await res.json().catch(() => ({ ambiguous: false }));
+      if (res.ok && result?.ambiguous && result.options?.length) {
+        setClarifyOptions(result.options);
+        setChecking(false);
+        return;
+      }
+    } catch {
+      // best-effort — fall through to saving as typed
+    }
+    setChecking(false);
+    setEditing(false);
+    setClarifyOptions(null);
+    onSave(subtopics);
+  }
+
+  function pickClarifiedOption(label: string) {
+    setValue(label);
+    setClarifyOptions(null);
+    setEditing(false);
+    onSave([label]);
   }
 
   if (!editing) {
@@ -556,36 +418,228 @@ function FocusEditor({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 pt-1">
-      <Input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="Speaking, Writing, Listening"
-        className="h-8 max-w-xs text-xs"
-        autoFocus
-      />
-      <Button size="sm" className="h-8" onClick={() => void save()}>Save</Button>
-      <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditing(false)}>Cancel</Button>
+    <div className="space-y-2 pt-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Speaking, Writing, Listening"
+          className="h-8 max-w-xs text-xs"
+          autoFocus
+        />
+        <Button size="sm" className="h-8" onClick={() => void commit(value)} disabled={checking}>
+          {checking ? "Checking…" : "Save"}
+        </Button>
+        <Button size="sm" variant="ghost" className="h-8" onClick={() => { setEditing(false); setClarifyOptions(null); }}>
+          Cancel
+        </Button>
+      </div>
+      {clarifyOptions && (
+        <div className="space-y-2 rounded-md border border-dashed border-border p-2">
+          <p className="text-xs text-muted-foreground">
+            "{value}" could mean a few different things within {categoryName || "this topic"} — did you mean:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {clarifyOptions.map((option) => (
+              <Button
+                key={option.label}
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                title={option.description}
+                onClick={() => pickClarifiedOption(option.label)}
+              >
+                {option.label}
+              </Button>
+            ))}
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => void commit(value)}>
+              Use "{value}" as typed
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Personal roadmap: editable steps + per-step playlist suggestions + goal suggestions ──
+// ── The single roadmap panel for a category+level. View mode shows a
+// clean read-only list (what "Suggested roadmap" used to be); Customize
+// mode is the full editor (add/edit/remove/reorder/import) — both operate
+// on the SAME roadmap doc, so nothing here is ever read-only by design. ──
 
-function PersonalRoadmapEditor({
+function RoadmapPanel({
+  category,
+  level,
+  subtopics,
+  roadmap,
+  onGenerateOrRegenerate,
+  onSaveSteps,
+}: {
+  category: Category;
+  level: RoadmapLevel;
+  subtopics: string[];
+  roadmap: LearningRoadmap | undefined;
+  onGenerateOrRegenerate: () => Promise<void>;
+  onSaveSteps: (steps: RoadmapStep[]) => void;
+}) {
+  const { user } = useAuth();
+  const [mode, setMode] = React.useState<"view" | "customize">("view");
+  const [generating, setGenerating] = React.useState(false);
+
+  const [promptOpen, setPromptOpen] = React.useState(false);
+  const [promptText, setPromptText] = React.useState<string | null>(null);
+  const [promptLoading, setPromptLoading] = React.useState(false);
+
+  const hasSteps = !!roadmap && roadmap.steps.length > 0;
+
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      await onGenerateOrRegenerate();
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function togglePrompt() {
+    if (promptOpen) {
+      setPromptOpen(false);
+      return;
+    }
+    setPromptOpen(true);
+    if (promptText) return;
+    if (!user) return;
+    setPromptLoading(true);
+    try {
+      const idToken = await user.getIdToken();
+      const res = await fetch("/api/ai/roadmap/prompt", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryName: category.name, level, subtopics }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || "Unable to build the prompt.");
+      setPromptText(payload.prompt as string);
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to build the prompt.");
+      setPromptOpen(false);
+    } finally {
+      setPromptLoading(false);
+    }
+  }
+
+  async function copyPrompt() {
+    if (!promptText) return;
+    try {
+      await navigator.clipboard.writeText(promptText);
+      toast.success("Prompt copied.");
+    } catch {
+      toast.error("Couldn't copy automatically — select and copy the text manually.");
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          {mode === "view" ? <Sparkles className="h-4 w-4 text-accent" /> : <PencilLine className="h-4 w-4 text-accent" />}
+          {mode === "view" ? "Suggested roadmap" : "Customize roadmap"}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={() => setMode((m) => (m === "view" ? "customize" : "view"))}>
+            {mode === "view" ? (
+              <><PencilLine className="mr-1 h-3.5 w-3.5" /> Customize</>
+            ) : (
+              <><Eye className="mr-1 h-3.5 w-3.5" /> View</>
+            )}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void handleGenerate()} disabled={generating}>
+            <Sparkles className="mr-1 h-3.5 w-3.5" /> {generating ? "Generating…" : hasSteps ? "Regenerate" : "Generate"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => void togglePrompt()}>
+            <Copy className="mr-1 h-3.5 w-3.5" /> Copy prompt
+          </Button>
+        </div>
+      </div>
+
+      {promptOpen && (
+        <div className="space-y-2 rounded-md border border-border bg-background p-3">
+          <p className="text-xs text-muted-foreground">
+            This is the exact prompt Study Lamp would send to generate this roadmap. Copy it, run it in any AI
+            assistant, then switch to <strong>Customize</strong> and paste the reply in to use it here.
+          </p>
+          {promptLoading ? (
+            <p className="text-xs text-muted-foreground">Building prompt…</p>
+          ) : (
+            <>
+              <Textarea readOnly value={promptText ?? ""} rows={8} className="font-mono text-xs" />
+              <Button size="sm" onClick={() => void copyPrompt()}>
+                <Copy className="mr-1 h-3.5 w-3.5" /> Copy to clipboard
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+
+      {mode === "view" ? (
+        <RoadmapView roadmap={roadmap} />
+      ) : (
+        <RoadmapEditor category={category} level={level} roadmap={roadmap} onSaveSteps={onSaveSteps} />
+      )}
+    </div>
+  );
+}
+
+// ── Read-only view of the current roadmap's steps. ──
+
+function RoadmapView({ roadmap }: { roadmap: LearningRoadmap | undefined }) {
+  if (!roadmap || roadmap.steps.length === 0) {
+    return (
+      <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+        No roadmap yet for this level. Use <strong>Generate</strong> above, or switch to{" "}
+        <strong>Customize</strong> to write your own.
+      </p>
+    );
+  }
+
+  return (
+    <ol className="space-y-2">
+      {roadmap.steps.map((step, index) => (
+        <li key={`${roadmap.id}-${index}`} className="flex gap-2 rounded-md border border-border bg-background p-3 text-sm">
+          <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent/10 text-[10px] font-semibold text-accent">
+            {step.week ?? index + 1}
+          </span>
+          <div>
+            <div className="font-medium">
+              {step.week ? <span className="text-muted-foreground">Week {step.week} — </span> : null}
+              {step.title}
+            </div>
+            {step.description && <p className="text-muted-foreground">{step.description}</p>}
+          </div>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// ── Editable steps + per-step playlist suggestions + goal suggestions.
+// Works whether `roadmap` exists yet or not — on an empty roadmap, the
+// first Add step / Import creates it via onSaveSteps. ──
+
+function RoadmapEditor({
   category,
   level,
   roadmap,
   onSaveSteps,
-  onRegenerate,
 }: {
   category: Category;
   level: RoadmapLevel;
-  roadmap: LearningRoadmap;
+  roadmap: LearningRoadmap | undefined;
   onSaveSteps: (steps: RoadmapStep[]) => void;
-  onRegenerate: () => void;
 }) {
   const { user } = useAuth();
+  const steps = roadmap?.steps ?? [];
+
   const [editingIndex, setEditingIndex] = React.useState<number | null>(null);
   const [draft, setDraft] = React.useState<{ title: string; description: string }>({ title: "", description: "" });
 
@@ -596,8 +650,6 @@ function PersonalRoadmapEditor({
   const [goalSuggestions, setGoalSuggestions] = React.useState<GoalSuggestion[] | null>(null);
   const [goalsLoading, setGoalsLoading] = React.useState(false);
 
-  // Replace this roadmap's steps entirely with pasted text — e.g. a
-  // roadmap the user already made by hand or generated with another AI.
   const [importOpen, setImportOpen] = React.useState(false);
   const [importText, setImportText] = React.useState("");
 
@@ -624,13 +676,13 @@ function PersonalRoadmapEditor({
       toast.error("A step needs a title.");
       return;
     }
-    const nextSteps = roadmap.steps.map((step, i) => (i === index ? { ...step, title, description: draft.description.trim() } : step));
+    const nextSteps = steps.map((step, i) => (i === index ? { ...step, title, description: draft.description.trim() } : step));
     onSaveSteps(nextSteps);
     setEditingIndex(null);
   }
 
   function removeStep(index: number) {
-    onSaveSteps(roadmap.steps.filter((_, i) => i !== index));
+    onSaveSteps(steps.filter((_, i) => i !== index));
     setPlaylistResults((prev) => {
       const { [index]: _removed, ...rest } = prev;
       return rest;
@@ -638,7 +690,7 @@ function PersonalRoadmapEditor({
   }
 
   function addStep() {
-    onSaveSteps([...roadmap.steps, { title: "New step", description: "", order: roadmap.steps.length }]);
+    onSaveSteps([...steps, { title: "New step", description: "", order: steps.length }]);
   }
 
   function reorderSteps(nextSteps: RoadmapStep[]) {
@@ -673,7 +725,7 @@ function PersonalRoadmapEditor({
       const suggestions = await suggestGoalsFromRoadmap(idToken, {
         categoryName: category.name,
         level,
-        steps: roadmap.steps.map((step) => ({ title: step.title, description: step.description })),
+        steps: steps.map((step) => ({ title: step.title, description: step.description })),
       });
       setGoalSuggestions(suggestions);
     } catch (error: any) {
@@ -704,29 +756,24 @@ function PersonalRoadmapEditor({
   }
 
   return (
-    <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-medium"><PencilLine className="h-4 w-4 text-accent" /> Personal roadmap</div>
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={addStep}>
-            <Plus className="mr-1 h-3.5 w-3.5" /> Add step
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setImportOpen((v) => !v)}>
-            <Import className="mr-1 h-3.5 w-3.5" /> Import roadmap
-          </Button>
-          <Button size="sm" variant="outline" onClick={onRegenerate}>
-            <Sparkles className="mr-1 h-3.5 w-3.5" /> Regenerate
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => void suggestGoals()} disabled={goalsLoading || roadmap.steps.length === 0}>
-            <Target className="mr-1 h-3.5 w-3.5" /> {goalsLoading ? "Thinking…" : "Suggest goals from this roadmap"}
-          </Button>
-        </div>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" onClick={addStep}>
+          <Plus className="mr-1 h-3.5 w-3.5" /> Add step
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => setImportOpen((v) => !v)}>
+          <Import className="mr-1 h-3.5 w-3.5" /> Paste / import roadmap
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => void suggestGoals()} disabled={goalsLoading || steps.length === 0}>
+          <Target className="mr-1 h-3.5 w-3.5" /> {goalsLoading ? "Thinking…" : "Suggest goals from this roadmap"}
+        </Button>
       </div>
 
       {importOpen && (
         <div className="space-y-2 rounded-md border border-border bg-background p-3">
           <p className="text-xs text-muted-foreground">
-            Paste a roadmap you already have — JSON (<code>{"[{title, description, week}]"}</code>) or a plain numbered list. This replaces the steps below.
+            Paste a roadmap you already have — JSON (<code>{"[{title, description, week}]"}</code>), the reply from
+            another AI you ran the copied prompt on, or a plain numbered list. This replaces the steps below.
           </p>
           <Textarea
             value={importText}
@@ -741,9 +788,15 @@ function PersonalRoadmapEditor({
         </div>
       )}
 
+      {steps.length === 0 && !importOpen && (
+        <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
+          No steps yet — add one manually or paste in a roadmap above.
+        </p>
+      )}
+
       <SortableList
-        items={roadmap.steps}
-        getId={(step) => String(roadmap.steps.indexOf(step))}
+        items={steps}
+        getId={(step) => String(steps.indexOf(step))}
         onReorder={reorderSteps}
         className="space-y-2"
         renderItem={(step, dragHandleProps, index) => (

@@ -23,9 +23,6 @@ export async function POST(req: NextRequest) {
   const categoryName = String(body?.categoryName ?? "").trim();
   const level = body?.level as RoadmapLevel;
   const subtopics: string[] = Array.isArray(body?.subtopics) ? body.subtopics.map((s: any) => String(s).trim()).filter(Boolean) : [];
-  // When set, this is a "Regenerate" call on an existing personalized
-  // roadmap — overwrite that doc's steps in place instead of creating a
-  // second learningRoadmaps doc for the same category+level.
   const roadmapId = String(body?.roadmapId ?? "").trim() || null;
 
   if (!categoryId && !categoryName) return NextResponse.json({ error: "A categoryId or categoryName is required." }, { status: 400 });
@@ -44,37 +41,36 @@ export async function POST(req: NextRequest) {
       )
     );
 
-    if (subtopics.length > 0) {
-      // Personalized to this learner's focus — never cache this in the
-      // shared roadmapTemplates library (see Step 0). Write it straight
-      // into the user's own roadmap instead.
+    const roadmapsRef = adminDb.collection("users").doc(uid).collection("learningRoadmaps");
 
-      if (roadmapId) {
-        // Regenerate path: overwrite the existing personal roadmap rather
-        // than adding a new one. Validate it actually belongs to this
-        // user/category/level first so a stale or forged roadmapId can't
-        // be used to overwrite an unrelated doc.
-        const roadmapRef = adminDb.collection("users").doc(uid).collection("learningRoadmaps").doc(roadmapId);
-        const roadmapSnap = await roadmapRef.get();
-        const roadmapData = roadmapSnap.data() as { categoryId?: string; level?: RoadmapLevel } | undefined;
+    // Every category+level has exactly one roadmap per user — this route
+    // upserts it, whether the caller is "Generate" (no roadmap yet),
+    // "Regenerate" (roadmapId supplied), or a level that already has a
+    // roadmap but no roadmapId was passed (fall back to finding it by
+    // categoryId+level so we never create a second doc for the same slot).
+    let targetRef = roadmapId ? roadmapsRef.doc(roadmapId) : null;
 
-        if (!roadmapSnap.exists || roadmapData?.categoryId !== targetCategoryId || roadmapData?.level !== level) {
-          return NextResponse.json({ error: "This roadmap could not be found for regeneration." }, { status: 404 });
-        }
-
-        await roadmapRef.update({
-          steps,
-          source: "generated",
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        return NextResponse.json(
-          { categoryId: targetCategoryId, categoryName: resolvedName, level, steps, roadmapId, personalized: true },
-          { headers: { "Cache-Control": "private, no-store" } }
-        );
+    if (targetRef) {
+      const snap = await targetRef.get();
+      const data = snap.data() as { categoryId?: string; level?: RoadmapLevel } | undefined;
+      if (!snap.exists || data?.categoryId !== targetCategoryId || data?.level !== level) {
+        return NextResponse.json({ error: "This roadmap could not be found for regeneration." }, { status: 404 });
       }
+    } else {
+      const existingSnap = await roadmapsRef.where("categoryId", "==", targetCategoryId).where("level", "==", level).limit(1).get();
+      if (!existingSnap.empty) targetRef = existingSnap.docs[0].ref;
+    }
 
-      const ref = await adminDb.collection("users").doc(uid).collection("learningRoadmaps").add({
+    let finalRoadmapId: string;
+    if (targetRef) {
+      await targetRef.update({
+        steps,
+        source: "generated",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      finalRoadmapId = targetRef.id;
+    } else {
+      const created = await roadmapsRef.add({
         categoryId: targetCategoryId,
         level,
         steps,
@@ -83,19 +79,11 @@ export async function POST(req: NextRequest) {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      return NextResponse.json(
-        { categoryId: targetCategoryId, categoryName: resolvedName, level, steps, roadmapId: ref.id, personalized: true },
-        { headers: { "Cache-Control": "private, no-store" } }
-      );
+      finalRoadmapId = created.id;
     }
 
-    await adminDb.collection("roadmapTemplates").doc(`${targetCategoryId}_${level}`).set(
-      { categoryId: targetCategoryId, level, steps, generatedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-
     return NextResponse.json(
-      { categoryId: targetCategoryId, categoryName: resolvedName, level, steps, personalized: false },
+      { categoryId: targetCategoryId, categoryName: resolvedName, level, steps, roadmapId: finalRoadmapId },
       { headers: { "Cache-Control": "private, no-store" } }
     );
   } catch (err: any) {

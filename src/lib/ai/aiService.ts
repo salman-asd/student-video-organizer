@@ -82,7 +82,7 @@ Requirements:
 - JSON must valid and parseable.`;
 }
 
-function roadmapStepsPrompt(input: { categoryName: string; level: RoadmapLevel; subtopics: string[] }): string {
+export function buildRoadmapStepsPrompt(input: { categoryName: string; level: RoadmapLevel; subtopics: string[] }): string {
   const { categoryName, level, subtopics } = input;
   const focus = subtopics.length > 0 ? subtopics.join(", ") : "all core sub-skills of this topic";
   return `You are an expert curriculum designer creating a week-by-week study plan.
@@ -203,6 +203,24 @@ export async function generateTopicClarification(connection: AiConnectionCredent
   return parseTopicClarificationFromText(raw);
 }
 
+// Same shape, but frames the question around a FOCUS the learner picked
+// within a category, not the category name itself. "English" as a
+// category is fine; "English" as a focus is not specific enough — it
+// could mean Literature, Grammar, IELTS prep, or Spoken English.
+
+function clarifyFocusPrompt(categoryName: string, focusText: string): string {
+  return `A learner is studying "${categoryName}" and wrote this as their specific focus: "${focusText}".
+ 
+  Focus terms can be broad enough to span several distinct learning paths within the same category (for example, within "English": Literature, Grammar/Language mechanics, IELTS/exam prep, and Spoken/conversational English are all different tracks with different content).
+  
+  If "${focusText}" is broad or could mean more than one distinct learning path within "${categoryName}", propose 2 to 4 more specific alternatives.
+  
+  Return JSON only, no prose:
+  { "ambiguous": true, "options": [ { "label": "string", "description": "one sentence" } ] }
+  or, if it is already specific enough:
+  { "ambiguous": false }`;
+}
+
 function extractJsonPayloadText(raw: string, expectedRoot: "object" | "array"): string {
   const text = (raw ?? "").trim();
   if (!text) return "";
@@ -227,6 +245,26 @@ function extractJsonPayloadText(raw: string, expectedRoot: "object" | "array"): 
   }
 
   return text;
+}
+
+export async function generateFocusClarification(
+  connection: AiConnectionCredentials,
+  categoryName: string,
+  focusText: string
+): Promise<TopicClarification> {
+  const prompt = clarifyFocusPrompt(categoryName, focusText);
+  let raw: string;
+  switch (connection.provider) {
+    case "gemini": raw = await generateWithGemini(connection, prompt); break;
+    case "openai": raw = await generateWithOpenAi(connection, prompt); break;
+    case "anthropic": raw = await generateWithAnthropic(connection, prompt); break;
+    case "openrouter": raw = await generateWithOpenRouter(connection, prompt); break;
+    case "groq": raw = await generateWithGroq(connection, prompt); break;
+    default:
+      const _exhaustive: never = connection.provider;
+      throw new AiServiceError("unsupported_provider", `Provider "${_exhaustive}" is not supported yet.`);
+  }
+  return parseTopicClarificationFromText(raw);
 }
 
 export function parseRoadmapPlanFromText(raw: string): RoadmapPlan {
