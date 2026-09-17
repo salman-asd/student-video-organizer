@@ -86,26 +86,29 @@ export function buildRoadmapStepsPrompt(input: { categoryName: string; level: Ro
   const { categoryName, level, subtopics } = input;
   const focus = subtopics.length > 0 ? subtopics.join(", ") : "all core sub-skills of this topic";
   return `You are an expert curriculum designer creating a week-by-week study plan.
-
+ 
 Topic: "${categoryName}"
 Learner level: ${level}
 Specific focus areas requested by the learner: ${focus}
-
+ 
 Design a ${level}-level roadmap broken into WEEKS, not vague topic names. Use current, widely-accepted best practice for teaching this subject.
-
+ 
 Rules:
 - Return between 4 and 10 weeks for THIS level only — do not include other levels.
 - Each week builds on the previous one and stays within scope for a "${level}" learner.
-- Each week's "description" is ONE short sentence, and its "details" MUST contain at least one concrete example — a specific tool, exercise, or resource the learner would actually use that week. 2 to 4 details per week, kept short.
-- Never leave a week with an empty "details" array.
+- Each week needs a short one-sentence "description" summarizing the week's goal.
+- Each week also needs a "details" array of 3 to 5 short, concrete bullet points — specific actions, sub-topics, or exercises for that week (not restatements of the title). At least ONE bullet in every week must include a short worked example, prefixed with "e.g." (a real snippet, phrase, sentence, or scenario the learner can immediately try — not a placeholder).
 - Stay strictly focused on: ${focus}.
 - Return JSON only — no prose, no markdown fences — in this exact shape:
 [
   {
     "week": 1,
     "title": "string",
-    "description": "one short sentence introducing the week",
-    "details": ["a specific concrete example, tool, or exercise", "another concrete action for the week"]
+    "description": "one-sentence summary of this week's goal",
+    "details": [
+      "concrete action or sub-topic for this week",
+      "another concrete action, e.g. a short worked example here"
+    ]
   }
 ]`;
 }
@@ -156,7 +159,7 @@ export async function generateRoadmapStepsForLevel(
   connection: AiConnectionCredentials,
   input: { categoryName: string; level: RoadmapLevel; subtopics: string[] }
 ): Promise<RoadmapStep[]> {
-  const prompt = roadmapStepsPrompt(input);
+  const prompt = buildRoadmapStepsPrompt(input);
   let raw: string;
   switch (connection.provider) {
     case "gemini": raw = await generateWithGemini(connection, prompt); break;
