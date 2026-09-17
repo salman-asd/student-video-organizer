@@ -43,8 +43,15 @@ export async function seedDefaultCategoriesForUser(userId: string): Promise<stri
 
 export async function ensureUserHasDefaultCategories(userId: string): Promise<string[]> {
   const existing = await listCategories(userId);
-  if (existing.length > 0) return existing.map((item) => item.id);
-  return seedDefaultCategoriesForUser(userId);
+  const existingNames = new Set(existing.map((item) => item.name.trim().toLowerCase()));
+  const createdIds = [...existing.map((item) => item.id)];
+
+  for (const category of DEFAULT_TAXONOMY) {
+    if (existingNames.has(category.name.trim().toLowerCase())) continue;
+    createdIds.push(await createCategory(category.name, userId));
+  }
+
+  return createdIds;
 }
 
 export async function updateCategory(userId: string, id: string, name: string) {

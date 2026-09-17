@@ -33,6 +33,7 @@ import { getExternalWatchAction } from "@/lib/video-platforms";
 import type { PersonalVideo, PriorityLevel, QuizQuestion } from "@/types";
 import { toast } from "sonner";
 import { getBackToPlaylistHref, shouldShowPlaylistSidebarOnRight, shouldUsePlaylistSidebar } from "@/lib/watchPage";
+import { trackLearningEvent } from "@/lib/analytics";
 
 // Personal videos reuse the notes/summaries collections but namespace the
 // doc id with a "p_" prefix so they can never collide with a shared-library
@@ -150,10 +151,12 @@ function PersonalVideoContent() {
         youtubeVideoId: video.youtubeVideoId || "",
         videoId,
         playlistId,
+        ownerId: user.uid,
         title: video.title,
         description: video.description || "",
         summary: summary || null,
       });
+      console.log(response)
       setQuizQuestions(response.questions || []);
       setSelectedAnswers({});
       setQuizSubmitted(false);
@@ -277,6 +280,7 @@ function PersonalVideoContent() {
     lastProgressSaveRef.current = Date.now();
     previousProgressRef.current = finalSeconds;
     setVideo((v) => (v ? { ...v, status: "completed", currentPositionSeconds: finalSeconds, watchedPercentage: 100 } : v));
+    if (user && !isViewingOther) void trackLearningEvent(user.uid, "video_completed", { videoId: video.id, playlistId });
 
     if (autoPlay && next) {
       toast.success(`Completed. Starting "${next.title}" next.`);

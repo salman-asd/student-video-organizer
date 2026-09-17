@@ -15,15 +15,16 @@ import { listQuizAttempts } from "@/lib/firestore/quizAttempts";
 import { listGoals } from "@/lib/firestore/goals";
 import { listLearningRoadmaps } from "@/lib/firestore/roadmaps";
 import { getTopCategoryMastery } from "@/lib/masteryUtils";
-import { computeDailyPace } from "@/lib/goalUtils";
+import { computeDailyPace, getGoalLinkedPlaylists, getGoalLinkedVideos } from "@/lib/goalUtils";
+import { getDueReviews } from "@/lib/reviewUtils";
 import { isResumeEligible } from "@/lib/watchProgress";
 import { formatWatchTime } from "@/lib/utils";
 import { getVideoWatchHref } from "@/lib/videoRoutes";
 import { VideoCard } from "@/components/video/VideoCard";
 import { QuickAddVideoDialog } from "@/components/video/QuickAddVideoDialog";
 import { toggleFavoriteAny, toggleWatchLaterAny, setPriorityAny, setWatchedAny } from "@/lib/videoActions";
-import type { PersonalPlaylist, PriorityLevel, VideoWithState } from "@/types";
-import { Clock3, ListVideo, Plus, Star, Flag, BookOpen, PlayCircle, CheckCircle2, Sparkles } from "lucide-react";
+import type { PersonalPlaylist, PriorityLevel, QuizAttempt, VideoWithState } from "@/types";
+import { Clock3, ListVideo, Plus, Star, Flag, BookOpen, PlayCircle, CheckCircle2, Sparkles, Flame } from "lucide-react";
 
 export default function DashboardPage() {
   return (
@@ -39,6 +40,7 @@ function DashboardContent() {
   const [playlists, setPlaylists] = React.useState<PersonalPlaylist[]>([]);
   const [goals, setGoals] = React.useState<any[]>([]);
   const [roadmaps, setRoadmaps] = React.useState<any[]>([]);
+  const [quizAttempts, setQuizAttempts] = React.useState<QuizAttempt[]>([]);
   const [quizGrowth, setQuizGrowth] = React.useState<Array<{ categoryId: string; categoryName: string; mastery: number; attempts: number }>>([]);
   const [saveVideoOpen, setSaveVideoOpen] = React.useState(false);
 
@@ -65,12 +67,15 @@ function DashboardContent() {
     if (!user?.uid) return;
     listQuizAttempts(user.uid)
       .then((attempts) => {
+        setQuizAttempts(attempts);
         const uniqueCategories = Array.from(new Set(attempts.map((attempt) => attempt.categoryId).filter(Boolean))) as string[];
         const categories = uniqueCategories.map((id) => ({ id, name: id }));
         setQuizGrowth(getTopCategoryMastery(attempts, categories, new Date(), 3));
       })
       .catch(() => setQuizGrowth([]));
   }, [user?.uid]);
+
+  const dueReviews = React.useMemo(() => getDueReviews(quizAttempts).slice(0, 1), [quizAttempts]);
 
   const progressRows = React.useMemo(() => {
     const interestRows = (profile?.interests ?? []).map((interest) => {
@@ -139,9 +144,9 @@ function DashboardContent() {
       .map((interest) => {
         const relevantRoadmaps = (roadmaps || []).filter((roadmap) => roadmap.categoryId === interest.categoryId);
         const selected = relevantRoadmaps.find((roadmap) => roadmap.level === interest.level) || relevantRoadmaps[0];
-        const nextStep = selected?.steps?.[0]?.title || "Choose your next topic focus";
         const categoryVideos = videos.filter((video) => video.categoryId === interest.categoryId);
         const completedCount = categoryVideos.filter((video) => video.state?.status === "completed").length;
+        const nextStep = selected?.steps?.[Math.min(completedCount, Math.max((selected?.steps?.length || 1) - 1, 0))]?.title || "Choose your next topic focus";
         const totalCount = Math.max(selected?.steps?.length || 1, categoryVideos.length || 1);
         const progress = Math.min(100, Math.round((completedCount / totalCount) * 100));
 
@@ -211,8 +216,30 @@ function DashboardContent() {
       });
     }
 
+    const review = dueReviews[0];
+    const reviewVideo = review ? videos.find((video) => video.id === review.videoId) : null;
+    const reviewGoal = reviewVideo
+      ? goals.find((goal) => {
+        const linkedVideo = getGoalLinkedVideos(goal).some((item) => item.id === reviewVideo.id);
+        const linkedPlaylist = getGoalLinkedPlaylists(goal).some((item) => item.id === reviewVideo.playlistId);
+        return !goal.completed && (linkedVideo || linkedPlaylist);
+      })
+      : null;
+    if (review) {
+      cards.push({
+        id: `review-${review.videoId}`,
+        type: "Review due",
+        title: reviewVideo?.title || "Review a recent quiz",
+        detail: reviewGoal
+          ? `Review this for your goal: ${reviewGoal.title}.`
+          : review.scorePercent < 80 ? "A quick revisit will help strengthen this topic." : "Refresh this topic while it is still familiar.",
+        meta: reviewGoal ? "Linked to an active goal" : `${review.ageDays} days since quiz`,
+        href: reviewGoal ? "/goals" : reviewVideo ? getVideoWatchHref(reviewVideo) : "/library",
+      });
+    }
+
     return cards.slice(0, 3);
-  }, [continueWatching, favorites, goals, highPriority, recentlyAdded, roadmapRecommendations, videos]);
+  }, [continueWatching, dueReviews, favorites, goals, highPriority, recentlyAdded, roadmapRecommendations, videos]);
 
   async function handleToggleFavorite(v: VideoWithState) {
     if (!user) return;
@@ -262,6 +289,7 @@ function DashboardContent() {
             <StatTile icon={Star} label="Favorites" value={stats.favorites} loading={loading} />
             <StatTile icon={Clock3} label="Watch Later" value={stats.watchLater} loading={loading} />
             <StatTile icon={Sparkles} label="Focus topics" value={stats.focusTopics} loading={loading} />
+            <StatTile icon={Flame} label="Study streak" value={profile?.stats?.currentStreakDays ?? 0} loading={loading} />
           </div>
 
           {!loading && stats.videos > 0 && (
@@ -279,6 +307,22 @@ function DashboardContent() {
             </div>
           )}
         </div>
+
+        {!loading && (!profile?.interests || profile.interests.length === 0) && (
+          <section className="rounded-2xl border border-dashed border-accent/50 bg-accent/5 p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-accent">Choose your learning focus</p>
+                <h2 className="mt-1 font-display text-xl font-semibold">Build a dashboard around what matters to you.</h2>
+                <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Select a few interests to unlock roadmap steps, recommendations, and more useful progress guidance.</p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button asChild><Link href="/onboarding">Set up interests</Link></Button>
+                <Button asChild variant="outline"><Link href="/settings">Review settings</Link></Button>
+              </div>
+            </div>
+          </section>
+        )}
 
         {coachingCards.length > 0 && (
           <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
@@ -381,48 +425,48 @@ function DashboardContent() {
           </section>
         )}
 
-        <DashboardSection
+        {/* <DashboardSection
           title="Continue Watching" icon={PlayCircle} viewAllHref="/continue-learning" loading={loading}
           emptyText="Nothing in progress yet. Pick up a video from your library to continue learning."
           items={continueWatching}
           renderItem={(video) => (
             <VideoCard key={video.id} video={video} showActions onToggleFavorite={() => handleToggleFavorite(video)} onToggleWatchLater={() => handleToggleWatchLater(video)} onSetPriority={(p) => handleSetPriority(video, p)} onToggleWatched={() => handleToggleWatched(video)} />
           )}
-        />
-        <DashboardSection
+        /> */}
+        {/* <DashboardSection
           title="Watch Later" icon={Clock3} viewAllHref="/watch-later" loading={loading}
           emptyText="Nothing saved for later. Tap Watch Later on any video to keep it queued."
           items={watchLater}
           renderItem={(video) => (
             <VideoCard key={video.id} video={video} showActions onToggleFavorite={() => handleToggleFavorite(video)} onToggleWatchLater={() => handleToggleWatchLater(video)} onSetPriority={(p) => handleSetPriority(video, p)} onToggleWatched={() => handleToggleWatched(video)} />
           )}
-        />
-        <DashboardSection
+        /> */}
+        {/* <DashboardSection
           title="High Priority" icon={Flag} viewAllHref="/priority" loading={loading}
           emptyText="No high-priority videos yet. Mark a video as high priority when it needs attention."
           items={highPriority}
           renderItem={(video) => (
             <VideoCard key={video.id} video={video} showActions onToggleFavorite={() => handleToggleFavorite(video)} onToggleWatchLater={() => handleToggleWatchLater(video)} onSetPriority={(p) => handleSetPriority(video, p)} onToggleWatched={() => handleToggleWatched(video)} />
           )}
-        />
-        <DashboardSection
+        /> */}
+        {/* <DashboardSection
           title="Favorites" icon={Star} viewAllHref="/favorites" loading={loading}
           emptyText="No favorites yet. Save videos you want to revisit later."
           items={favorites}
           renderItem={(video) => (
             <VideoCard key={video.id} video={video} showActions onToggleFavorite={() => handleToggleFavorite(video)} onToggleWatchLater={() => handleToggleWatchLater(video)} onSetPriority={(p) => handleSetPriority(video, p)} onToggleWatched={() => handleToggleWatched(video)} />
           )}
-        />
-        <DashboardSection
+        /> */}
+        {/* <DashboardSection
           title="Recently Added" icon={ListVideo} loading={loading}
           emptyText="No recent videos yet. Add or import content to get started."
           items={recentlyAdded}
           renderItem={(video) => (
             <VideoCard key={video.id} video={video} showActions onToggleFavorite={() => handleToggleFavorite(video)} onToggleWatchLater={() => handleToggleWatchLater(video)} onSetPriority={(p) => handleSetPriority(video, p)} onToggleWatched={() => handleToggleWatched(video)} />
           )}
-        />
+        /> */}
 
-        <section className="space-y-3">
+        {/* <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 font-display text-lg font-semibold"><BookOpen className="h-4 w-4 text-accent" /> Playlists</h2>
             <Link href="/playlists" className="text-sm text-muted-foreground hover:text-foreground">View all</Link>
@@ -459,7 +503,7 @@ function DashboardContent() {
               ))}
             </div>
           )}
-        </section>
+        </section> */}
       </div>
       {user?.uid && <QuickAddVideoDialog
         ownerId={user.uid}

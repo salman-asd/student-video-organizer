@@ -4,7 +4,13 @@ import { generateVideoQuiz, AiServiceError, type AiErrorCode } from "@/lib/ai/ai
 import { getYouTubeTranscript, TranscriptUnavailableError } from "@/lib/ai/transcript";
 import { getAiPreferences } from "@/lib/server/aiPreferences";
 import { withAiConnection } from "@/lib/server/resolveAiConnection";
-import { buildVideoSourceHash, getPersonalVideoQuiz, getVideoQuiz, savePersonalVideoQuiz, saveVideoQuiz } from "@/lib/firestore/quiz";
+import { buildVideoSourceHash } from "@/lib/quizSource";
+import {
+  getPersonalVideoQuiz,
+  getSharedVideoQuiz,
+  savePersonalVideoQuiz,
+  saveSharedVideoQuiz,
+} from "@/lib/server/quiz";
 
 const STATUS_BY_CODE: Record<AiErrorCode, number> = {
   auth: 400,
@@ -32,23 +38,33 @@ export async function POST(req: NextRequest) {
   }
 
   const b = body as Record<string, unknown>;
-  if (typeof b.youtubeVideoId !== "string" || !b.youtubeVideoId.trim()) {
-    return NextResponse.json({ error: "A YouTube video ID is required." }, { status: 400 });
-  }
-
   const videoId = typeof b.videoId === "string" ? b.videoId.trim() : undefined;
   const playlistId = typeof b.playlistId === "string" ? b.playlistId.trim() : undefined;
   const ownerId = typeof b.ownerId === "string" ? b.ownerId.trim() : undefined;
   const title = typeof b.title === "string" ? b.title : undefined;
   const description = typeof b.description === "string" ? b.description : null;
   const summary = typeof b.summary === "string" ? b.summary : null;
+  const youtubeVideoId = typeof b.youtubeVideoId === "string" ? b.youtubeVideoId.trim() : "";
+
+  if (!summary?.trim() && !youtubeVideoId) {
+    return NextResponse.json({ error: "Add a summary or use a YouTube video with available captions before generating a quiz." }, { status: 422 });
+  }
+  if (ownerId && ownerId !== uid) {
+    return NextResponse.json({ error: "You can only generate quizzes for your own personal videos." }, { status: 403 });
+  }
+  if (!ownerId && (!playlistId || !videoId)) {
+    return NextResponse.json({ error: "A playlistId and videoId are required for a shared video quiz." }, { status: 400 });
+  }
+  if (ownerId && (!playlistId || !videoId)) {
+    return NextResponse.json({ error: "A playlistId and videoId are required for a personal video quiz." }, { status: 400 });
+  }
   const sourceHash = buildVideoSourceHash(title || "", description, summary);
 
   let cachedQuiz;
   if (ownerId && playlistId && videoId) {
     cachedQuiz = await getPersonalVideoQuiz(ownerId, playlistId, videoId).catch(() => null);
-  } else if (videoId) {
-    cachedQuiz = await getVideoQuiz(videoId).catch(() => null);
+  } else if (playlistId && videoId) {
+    cachedQuiz = await getSharedVideoQuiz(playlistId, videoId).catch(() => null);
   }
 
   if (cachedQuiz && cachedQuiz.sourceHash === sourceHash) {
@@ -58,7 +74,7 @@ export async function POST(req: NextRequest) {
   let transcript: string | undefined;
   if (!summary || !summary.trim()) {
     try {
-      transcript = await getYouTubeTranscript(b.youtubeVideoId.trim());
+      transcript = await getYouTubeTranscript(youtubeVideoId);
     } catch (error) {
       if (error instanceof TranscriptUnavailableError) {
         const preferences = await getAiPreferences(uid).catch(() => ({ speechToTextEnabled: false }));
@@ -83,10 +99,19 @@ export async function POST(req: NextRequest) {
       );
     });
 
-    if (ownerId && playlistId && videoId) {
-      await savePersonalVideoQuiz(ownerId, playlistId, videoId, questions, sourceHash);
-    } else if (videoId) {
-      await saveVideoQuiz(videoId, questions, sourceHash, playlistId);
+    // The cache saves provider cost on later requests, but it must never
+    // prevent a learner from receiving a quiz that was generated
+    // successfully. In particular, a newly deployed Firestore rule/index
+    // or a transient database failure should degrade to an uncached quiz,
+    // not a misleading 500 response.
+    try {
+      if (ownerId && playlistId && videoId) {
+        await savePersonalVideoQuiz(ownerId, playlistId, videoId, questions, sourceHash);
+      } else if (playlistId && videoId) {
+        await saveSharedVideoQuiz(playlistId, videoId, questions, sourceHash);
+      }
+    } catch (cacheError) {
+      console.error("Generated quiz could not be cached", cacheError);
     }
 
     return NextResponse.json({ questions }, { headers: { "Cache-Control": "private, no-store" } });

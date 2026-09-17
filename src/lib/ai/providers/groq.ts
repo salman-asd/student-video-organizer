@@ -49,7 +49,7 @@ export async function generateWithGroq(credentials: AiConnectionCredentials, pro
         model: credentials.model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.7,
-        max_tokens: 900,
+        max_tokens: 1800,
       }),
     }));
   } catch (err: any) {

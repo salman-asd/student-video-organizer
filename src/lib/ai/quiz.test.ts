@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { parseQuizQuestionsFromText } from "./aiService";
+import { parseQuizQuestionsFromText, parseRoadmapPlanFromText } from "./aiService";
 import { buildQuizPrompt } from "./prompts";
 
 describe("parseQuizQuestionsFromText", () => {
@@ -72,6 +72,12 @@ describe("parseQuizQuestionsFromText", () => {
   it("rejects malformed JSON or missing required fields", () => {
     assert.throws(() => parseQuizQuestionsFromText("not-json"), /Invalid quiz response/);
     assert.throws(() => parseQuizQuestionsFromText(JSON.stringify([{ prompt: "oops" }])), /Invalid quiz response/);
+    assert.throws(() => parseQuizQuestionsFromText(JSON.stringify([{
+      prompt: "What is correct?",
+      options: [{ id: "a", text: "Alpha" }, { id: "b", text: "Beta" }],
+      correctOptionId: "missing",
+      explanation: "The answer is in the lesson.",
+    }])), /Invalid quiz response/);
   });
 
   it("prioritizes transcript and saved summary over title and description in the quiz prompt", () => {
@@ -88,5 +94,19 @@ describe("parseQuizQuestionsFromText", () => {
     assert.ok(prompt.includes("Description:"));
     assert.ok(prompt.indexOf("Transcript:") < prompt.indexOf("Title:"));
     assert.ok(prompt.indexOf("Saved summary:") < prompt.indexOf("Title:"));
+  });
+});
+
+describe("parseRoadmapPlanFromText", () => {
+  it("parses an unfenced roadmap object even though it contains nested arrays", () => {
+    const result = parseRoadmapPlanFromText(JSON.stringify({
+      basic: [{ title: "Basics", description: "Learn foundations.", order: 1 }],
+      intermediate: [{ title: "Practice", description: "Build projects.", order: 1 }],
+      advanced: [{ title: "Mastery", description: "Apply advanced concepts.", order: 1 }],
+    }));
+
+    assert.equal(result.basic[0].title, "Basics");
+    assert.equal(result.intermediate[0].title, "Practice");
+    assert.equal(result.advanced[0].title, "Mastery");
   });
 });

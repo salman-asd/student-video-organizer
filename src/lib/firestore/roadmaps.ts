@@ -1,6 +1,6 @@
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { sanitizeRoadmapSteps } from "@/lib/roadmapUtils";
+import { renumberSteps, sanitizeRoadmapSteps } from "@/lib/roadmapUtils";
 import type { LearningRoadmap, RoadmapLevel, RoadmapTemplate, RoadmapStep } from "@/types";
 
 const roadmapTemplateDocId = (categoryId: string, level: RoadmapLevel) => `${categoryId}_${level}`;
@@ -66,4 +66,24 @@ export async function updateLearningRoadmap(uid: string, roadmapId: string, step
     steps,
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function createLearningRoadmap(
+  uid: string,
+  categoryId: string,
+  level: RoadmapLevel,
+  steps: RoadmapStep[],
+  source: "generated" | "imported" = "imported"
+): Promise<string> {
+  const safeSteps = renumberSteps(steps);
+  const ref = await addDoc(collection(db, "users", uid, "learningRoadmaps"), {
+    categoryId,
+    level,
+    steps: safeSteps,
+    source,
+    adoptedFromTemplateAt: null,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return ref.id;
 }

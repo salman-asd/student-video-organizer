@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAuthenticatedUid } from "@/lib/server/requireAuth";
-import { listCategories } from "@/lib/firestore/categoriesTags";
 import { withAiConnection } from "@/lib/server/resolveAiConnection";
+import { adminDb } from "@/lib/server/firebase-admin";
 import { AiServiceError } from "@/lib/ai/aiService";
+import { generateWithGemini } from "@/lib/ai/providers/gemini";
+import { generateWithOpenAi } from "@/lib/ai/providers/openai";
+import { generateWithAnthropic } from "@/lib/ai/providers/anthropic";
+import { generateWithOpenRouter } from "@/lib/ai/providers/openrouter";
+import { generateWithGroq } from "@/lib/ai/providers/groq";
+import type { AiConnectionCredentials } from "@/lib/ai/types";
 
 const STATUS_BY_CODE: Record<string, number> = {
   auth: 400,
@@ -28,30 +34,39 @@ export async function POST(req: NextRequest) {
   }
 
   const typedValue = String(body?.otherText ?? "").trim();
+  const contextName = String(body?.contextName ?? "learning topic").trim();
+  const candidateSubtopics = Array.isArray(body?.candidateSubtopics)
+    ? body.candidateSubtopics.map((item: unknown) => String(item).trim()).filter(Boolean).slice(0, 100)
+    : [];
   if (!typedValue) {
     return NextResponse.json({ error: "The typed topic is required." }, { status: 400 });
   }
 
   try {
-    const candidateCategories = await listCategories(uid);
+    const categorySnap = await adminDb.collection("users").doc(uid).collection("categories").get();
+    const candidateCategories = categorySnap.docs.map((categoryDoc) => ({
+      id: categoryDoc.id,
+      name: String(categoryDoc.data().name ?? ""),
+    }));
     const suggestion = await withAiConnection(uid, async (apiKey, provider, model) => {
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(apiKey), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: `Clean up this learning interest label and decide if it matches an existing category.\n\nInput: "${typedValue}"\nExisting categories: ${candidateCategories.map((c) => c.name).join(", ") || "(none)"}\n\nReturn JSON only in this exact shape:\n{\n  "cleanedName": "string",\n  "isDuplicate": boolean,\n  "matchingCategory": "string or null"\n}` } ] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 200 },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        throw new AiServiceError("invalid_request", errorText || "AI suggestion request failed.");
+      const prompt = `Suggest the correctly spelled learning topic. The learner is choosing a subtopic under "${contextName}".\n\nInput: "${typedValue}"\nKnown subtopics: ${candidateSubtopics.join(", ") || "(none)"}\nExisting main categories: ${candidateCategories.map((c) => c.name).join(", ") || "(none)"}\n\nIf the input is a typo, return the closest known subtopic. If it is a valid new topic, preserve it with normal title casing. Return JSON only in this exact shape:\n{\n  "cleanedName": "string",\n  "isDuplicate": boolean,\n  "matchingCategory": "string or null"\n}`;
+      const credentials: AiConnectionCredentials = { provider, apiKey, model };
+      let text: string;
+      switch (provider) {
+        case "gemini": text = await generateWithGemini(credentials, prompt); break;
+        case "openai": text = await generateWithOpenAi(credentials, prompt); break;
+        case "anthropic": text = await generateWithAnthropic(credentials, prompt); break;
+        case "openrouter": text = await generateWithOpenRouter(credentials, prompt); break;
+        case "groq": text = await generateWithGroq(credentials, prompt); break;
+        default: throw new AiServiceError("unsupported_provider", `Provider "${provider}" is not supported.`);
       }
-
-      const data = await response.json();
-      const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text ?? "").join("") ?? "";
-      const parsed = JSON.parse((text.match(/\{[\s\S]*\}/)?.[0] ?? "{}"));
+      let parsed: any;
+      try {
+        parsed = JSON.parse((text.match(/\{[\s\S]*\}/)?.[0] ?? "{}"));
+      } catch {
+        throw new AiServiceError("invalid_request", "The AI returned an invalid spelling suggestion.");
+      }
+      if (!parsed || typeof parsed !== "object") throw new AiServiceError("invalid_request", "AI returned an invalid suggestion.");
       return {
         cleanedName: String(parsed.cleanedName || typedValue).trim(),
         isDuplicate: Boolean(parsed.isDuplicate),

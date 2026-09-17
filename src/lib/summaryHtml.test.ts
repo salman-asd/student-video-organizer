@@ -26,4 +26,11 @@ describe("toSummaryHtml", () => {
   it("treats empty content as empty HTML", () => {
     assert.equal(toSummaryHtml("   \n\n  "), "");
   });
+
+  it("removes unsafe tags and attributes from stored HTML", () => {
+    assert.equal(
+      toSummaryHtml('<p onclick="alert(1)">Safe</p><script>alert(2)</script><img src="x">'),
+      "<p>Safe</p>",
+    );
+  });
 });

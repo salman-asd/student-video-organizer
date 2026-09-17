@@ -45,7 +45,7 @@ export async function generateWithOpenRouter(credentials: AiConnectionCredential
   try {
     res = await withTimeout(GENERATE_TIMEOUT_MS, (signal) => fetch(CHAT_COMPLETIONS_URL, {
       method: "POST", signal, headers: headers(credentials.apiKey),
-      body: JSON.stringify({ model: credentials.model, messages: [{ role: "user", content: prompt }], temperature: 0.7, max_tokens: 900 }),
+      body: JSON.stringify({ model: credentials.model, messages: [{ role: "user", content: prompt }], temperature: 0.7, max_tokens: 1800 }),
     }));
   } catch (err: any) {
     if (err?.name === "AbortError") throw new AiServiceError("timeout", "Timed out waiting for OpenRouter.");

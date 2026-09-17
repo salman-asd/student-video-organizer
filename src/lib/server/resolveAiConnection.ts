@@ -55,14 +55,18 @@ export async function withAiConnection<T>(
 
   const quota = await getOrInitQuota(uid).catch(() => null);
   if (quota && quota.systemAiEnabled === false) {
-    throw new AiServiceError(
-      "rate_limit",
-      "System AI access is disabled for this account. Add your own API key in Settings or ask an admin to enable system AI access."
-    );
+    throw new AiServiceError("rate_limit", "System AI access is disabled for this account. Add your own API key in Settings or ask an admin to enable system AI access.");
   }
 
   while (true) {
-    const personalConnection = await resolved.getPersonalConnectionRaw!(uid, undefined, personalTried);
+    let personalConnection;
+    try {
+      personalConnection = await resolved.getPersonalConnectionRaw!(uid, undefined, personalTried);
+    } catch (err) {
+      console.error("Failed to read personal AI connection", err);
+      throw new AiServiceError("server_error", "Couldn't look up your saved AI connection. Please try again.");
+    }
+
     if (personalConnection) {
       personalTried.add(personalConnection.id);
       try {
@@ -75,26 +79,31 @@ export async function withAiConnection<T>(
       continue;
     }
 
-    const quotaAllowed = await resolved.consumeQuota!(uid);
-    if (!quotaAllowed) {
-      throw new AiServiceError(
-        "rate_limit",
-        "No active AI connection is available for your account, and your system AI quota is exhausted. Add your own API key in Settings or ask an admin for more quota."
-      );
+    let quotaAllowed: boolean;
+    try {
+      quotaAllowed = await resolved.consumeQuota!(uid);
+    } catch (err) {
+      console.error("Failed to consume AI quota", err);
+      throw new AiServiceError("server_error", "Couldn't check your AI quota. Please try again.");
     }
 
-    const systemConnection = await resolved.getSystemConnectionRaw!(undefined, systemTried);
+    if (!quotaAllowed) {
+      throw new AiServiceError("rate_limit", "No active AI connection is available for your account, and your system AI quota is exhausted. Add your own API key in Settings or ask an admin for more quota.");
+    }
+
+    let systemConnection;
+    try {
+      systemConnection = await resolved.getSystemConnectionRaw!(undefined, systemTried);
+    } catch (err) {
+      console.error("Failed to read system AI connection", err);
+      throw new AiServiceError("server_error", "Couldn't look up a system AI connection. Please try again.");
+    }
+
     if (!systemConnection) {
       if (lastPersonalError) {
-        throw new AiServiceError(
-          "rate_limit",
-          "No system AI connection is available for your account. Add your own API key in Settings or ask an admin for more quota."
-        );
+        throw new AiServiceError("rate_limit", "No system AI connection is available for your account. Add your own API key in Settings or ask an admin for more quota.");
       }
-      throw new AiServiceError(
-        "rate_limit",
-        "No active AI connection is available. Add your own API key in Settings or ask an admin for more quota."
-      );
+      throw new AiServiceError("rate_limit", "No active AI connection is available. Add your own API key in Settings or ask an admin for more quota.");
     }
 
     systemTried.add(systemConnection.id);
@@ -105,10 +114,7 @@ export async function withAiConnection<T>(
       if (!FALLBACK_CODES.has(err.code)) throw err;
       const quotaStillAllowed = await resolved.consumeQuota!(uid).catch(() => false);
       if (!quotaStillAllowed) {
-        throw new AiServiceError(
-          "rate_limit",
-          "Your system AI quota is exhausted. Add your own API key in Settings or ask an admin for more quota."
-        );
+        throw new AiServiceError("rate_limit", "Your system AI quota is exhausted. Add your own API key in Settings or ask an admin for more quota.");
       }
     }
   }

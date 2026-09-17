@@ -10,19 +10,42 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
     name: "Development",
     subcategories: [
       "Web Development",
+      "Data Science",
+      "Mobile Apps",
       "Programming Languages",
       "Software Engineering",
       "Game Development",
+      "JavaScript",
+      "TypeScript",
+      "Node.js",
+      "Python",
+      "React",
+      "Vue.js",
+      "Angular",
+      "C#",
+      "Java",
+      "C++",
     ],
   },
   {
     id: "business",
     name: "Business",
     subcategories: [
-      "Finance",
       "Entrepreneurship",
       "Management",
-      "Communications",
+      "Strategy",
+      "Sales",
+      "Operations",
+    ],
+  },
+  {
+    id: "finance-accounting",
+    name: "Finance & Accounting",
+    subcategories: [
+      "Accounting",
+      "Bookkeeping",
+      "Financial Modeling",
+      "Corporate Finance",
     ],
   },
   {
@@ -30,6 +53,7 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
     name: "IT & Software",
     subcategories: [
       "Network Security",
+      "Operating Systems",
       "IT Certifications",
       "Hardware",
     ],
@@ -38,10 +62,11 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
     id: "office-productivity",
     name: "Office Productivity",
     subcategories: [
-      "Microsoft",
-      "Apple",
-      "Google",
-      "Salesforce",
+      "Microsoft Office",
+      "Excel",
+      "PowerPoint",
+      "Word",
+      "Google Workspace",
     ],
   },
   {
@@ -52,6 +77,8 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
       "Leadership",
       "Conversation Skills",
       "Personal Transformation",
+      "Career Growth",
+      "Mental Health",
     ],
   },
   {
@@ -61,7 +88,7 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
       "Graphic Design",
       "UX/UI",
       "Web Design",
-      "Design Tools",
+      "3D Modeling",
     ],
   },
   {
@@ -70,7 +97,8 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
     subcategories: [
       "Social Media Marketing",
       "SEO",
-      "Branding",
+      "Digital Marketing",
+      "Advertising",
     ],
   },
   {
@@ -80,6 +108,9 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
       "Photography",
       "Gaming",
       "Arts & Crafts",
+      "Food & Beverage",
+      "Pet Care",
+      "Travel",
     ],
   },
   {
@@ -88,6 +119,8 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
     subcategories: [
       "Digital Photography",
       "Video Production",
+      "Video Design",
+      "Commercial Photography",
     ],
   },
   {
@@ -98,6 +131,16 @@ export const DEFAULT_TAXONOMY: DefaultTaxonomyCategory[] = [
       "Nutrition",
       "Mental Health",
     ],
+  },
+  {
+    id: "music",
+    name: "Music",
+    subcategories: ["Instruments", "Music Production", "Vocals"],
+  },
+  {
+    id: "teaching-academics",
+    name: "Teaching & Academics",
+    subcategories: ["Math", "Science", "Social Sciences", "Humanities", "Test Prep"],
   },
 ];
 
@@ -162,4 +205,63 @@ export function validateCustomInterestName(rawValue: string): { valid: boolean; 
   }
 
   return { valid: true, normalized };
+}
+
+export function validateCustomSubtopicName(
+  rawValue: string,
+  knownSubtopics: string[],
+): { valid: boolean; reason?: string; normalized: string; suggested?: string } {
+  const validation = validateCustomInterestName(rawValue);
+  if (!validation.valid) return validation;
+
+  const normalizedInput = validation.normalized.toLowerCase();
+  const duplicate = knownSubtopics.find((topic) => topic.trim().toLowerCase() === normalizedInput);
+  if (duplicate) {
+    return {
+      valid: false,
+      reason: `Select “${duplicate}” from the suggested subtopics instead.`,
+      normalized: validation.normalized,
+      suggested: duplicate,
+    };
+  }
+
+  const likelyTypo = knownSubtopics
+    .map((topic) => ({ topic, score: similarityScore(normalizedInput, topic.trim().toLowerCase()) }))
+    .filter((entry) => entry.score >= 0.72)
+    .sort((a, b) => b.score - a.score)[0];
+
+  if (likelyTypo) {
+    return {
+      valid: false,
+      reason: `Did you mean “${likelyTypo.topic}”? Select the suggested spelling instead.`,
+      normalized: validation.normalized,
+      suggested: likelyTypo.topic,
+    };
+  }
+
+  return { valid: true, normalized: validation.normalized };
+}
+
+function similarityScore(a: string, b: string): number {
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  if (a.includes(b) || b.includes(a)) return 0.8;
+  const distance = levenshteinDistance(a, b);
+  const maxLength = Math.max(a.length, b.length);
+  return maxLength === 0 ? 1 : 1 - distance / maxLength;
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) dp[0][j] = j;
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  }
+
+  return dp[a.length][b.length];
 }

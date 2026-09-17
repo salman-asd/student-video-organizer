@@ -13,8 +13,8 @@ import type {
   QuizVideoInput,
   VideoSummaryInput,
 } from "./types";
-import type { RoadmapStep } from "@/types";
-import { sanitizeRoadmapSteps } from "@/lib/roadmapUtils";
+import type { RoadmapLevel, RoadmapStep } from "@/types";
+import { sanitizeRoadmapStepDetails, sanitizeRoadmapSteps } from "@/lib/roadmapUtils";
 
 /**
  * Application-facing AI API. This is the ONLY module that video/summary
@@ -82,7 +82,155 @@ Requirements:
 - JSON must valid and parseable.`;
 }
 
-function extractJsonPayloadText(raw: string): string {
+export function buildRoadmapStepsPrompt(input: { categoryName: string; level: RoadmapLevel; subtopics: string[] }): string {
+  const { categoryName, level, subtopics } = input;
+  const focus = subtopics.length > 0 ? subtopics.join(", ") : "all core sub-skills of this topic";
+  return `You are an expert curriculum designer creating a week-by-week study plan.
+ 
+Topic: "${categoryName}"
+Learner level: ${level}
+Specific focus areas requested by the learner: ${focus}
+ 
+Design a ${level}-level roadmap broken into WEEKS, not vague topic names. Use current, widely-accepted best practice for teaching this subject.
+ 
+Rules:
+- Return between 4 and 10 weeks for THIS level only — do not include other levels.
+- Each week builds on the previous one and stays within scope for a "${level}" learner.
+- Each week needs a short one-sentence "description" summarizing the week's goal.
+- Each week also needs a "details" array of 3 to 5 short, concrete bullet points — specific actions, sub-topics, or exercises for that week (not restatements of the title). At least ONE bullet in every week must include a short worked example, prefixed with "e.g." (a real snippet, phrase, sentence, or scenario the learner can immediately try — not a placeholder).
+- Stay strictly focused on: ${focus}.
+- Return JSON only — no prose, no markdown fences — in this exact shape:
+[
+  {
+    "week": 1,
+    "title": "string",
+    "description": "one-sentence summary of this week's goal",
+    "details": [
+      "concrete action or sub-topic for this week",
+      "another concrete action, e.g. a short worked example here"
+    ]
+  }
+]`;
+}
+
+function clarifyTopicPrompt(rawName: string): string {
+  return `A learner typed "${rawName}" as something they want to learn.
+
+If this term is short, ambiguous, or could mean several distinct learning topics (an abbreviation, a tool/language with several common learning angles, an overloaded word), propose 2 to 4 distinct, concrete interpretations.
+
+Return JSON only, no prose:
+{ "ambiguous": true, "options": [ { "label": "string", "description": "one sentence" } ] }
+or, if the term is already a clear, specific learning topic:
+{ "ambiguous": false }`;
+}
+
+export function parseRoadmapStepsFromText(raw: string): RoadmapStep[] {
+  const text = (raw ?? "").trim();
+  if (!text) throw new AiServiceError("invalid_request", "Invalid roadmap response.");
+  const payloadText = extractJsonPayloadText(text, "array");
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadText);
+  } catch {
+    throw new AiServiceError("invalid_request", "Invalid roadmap response.");
+  }
+  if (!Array.isArray(parsed)) throw new AiServiceError("invalid_request", "Invalid roadmap response.");
+
+  const steps = sanitizeRoadmapSteps(
+    parsed.map((item, index) => {
+      const s = item as Record<string, unknown>;
+      const week = Number.isFinite(s.week) ? Number(s.week) : index + 1;
+      return {
+        title: String(s.title ?? "").trim(),
+        description: String(s.description ?? "").trim(),
+        details: sanitizeRoadmapStepDetails(s.details),
+        order: week - 1,
+        week,
+      };
+    })
+  );
+
+  if (steps.length === 0) throw new AiServiceError("invalid_request", "Invalid roadmap response.");
+  return steps;
+}
+
+export async function generateRoadmapStepsForLevel(
+  connection: AiConnectionCredentials,
+  input: { categoryName: string; level: RoadmapLevel; subtopics: string[] }
+): Promise<RoadmapStep[]> {
+  const prompt = buildRoadmapStepsPrompt(input);
+  let raw: string;
+  switch (connection.provider) {
+    case "gemini": raw = await generateWithGemini(connection, prompt); break;
+    case "openai": raw = await generateWithOpenAi(connection, prompt); break;
+    case "anthropic": raw = await generateWithAnthropic(connection, prompt); break;
+    case "openrouter": raw = await generateWithOpenRouter(connection, prompt); break;
+    case "groq": raw = await generateWithGroq(connection, prompt); break;
+    default:
+      const _exhaustive: never = connection.provider;
+      throw new AiServiceError("unsupported_provider", `Provider "${_exhaustive}" is not supported yet.`);
+  }
+  return parseRoadmapStepsFromText(raw);
+}
+
+export interface TopicClarification {
+  ambiguous: boolean;
+  options?: { label: string; description: string }[];
+}
+
+export function parseTopicClarificationFromText(raw: string): TopicClarification {
+  const text = (raw ?? "").trim();
+  if (!text) return { ambiguous: false };
+  try {
+    const parsed = JSON.parse(extractJsonPayloadText(text, "object")) as Record<string, unknown>;
+    if (parsed?.ambiguous !== true) return { ambiguous: false };
+    const options = Array.isArray(parsed.options)
+      ? (parsed.options as Record<string, unknown>[])
+        .map((o) => ({ label: String(o.label ?? "").trim(), description: String(o.description ?? "").trim() }))
+        .filter((o) => !!o.label)
+      : [];
+    return options.length > 0 ? { ambiguous: true, options } : { ambiguous: false };
+  } catch {
+    return { ambiguous: false };
+  }
+}
+
+export async function generateTopicClarification(connection: AiConnectionCredentials, rawName: string): Promise<TopicClarification> {
+  const prompt = clarifyTopicPrompt(rawName);
+  let raw: string;
+  switch (connection.provider) {
+    case "gemini": raw = await generateWithGemini(connection, prompt); break;
+    case "openai": raw = await generateWithOpenAi(connection, prompt); break;
+    case "anthropic": raw = await generateWithAnthropic(connection, prompt); break;
+    case "openrouter": raw = await generateWithOpenRouter(connection, prompt); break;
+    case "groq": raw = await generateWithGroq(connection, prompt); break;
+    default:
+      const _exhaustive: never = connection.provider;
+      throw new AiServiceError("unsupported_provider", `Provider "${_exhaustive}" is not supported yet.`);
+  }
+  return parseTopicClarificationFromText(raw);
+}
+
+// Same shape, but frames the question around a FOCUS the learner picked
+// within a category, not the category name itself. "English" as a
+// category is fine; "English" as a focus is not specific enough — it
+// could mean Literature, Grammar, IELTS prep, or Spoken English.
+
+function clarifyFocusPrompt(categoryName: string, focusText: string): string {
+  return `A learner is studying "${categoryName}" and wrote this as their specific focus: "${focusText}".
+ 
+  Focus terms can be broad enough to span several distinct learning paths within the same category (for example, within "English": Literature, Grammar/Language mechanics, IELTS/exam prep, and Spoken/conversational English are all different tracks with different content).
+  
+  If "${focusText}" is broad or could mean more than one distinct learning path within "${categoryName}", propose 2 to 4 more specific alternatives.
+  
+  Return JSON only, no prose:
+  { "ambiguous": true, "options": [ { "label": "string", "description": "one sentence" } ] }
+  or, if it is already specific enough:
+  { "ambiguous": false }`;
+}
+
+function extractJsonPayloadText(raw: string, expectedRoot: "object" | "array"): string {
   const text = (raw ?? "").trim();
   if (!text) return "";
 
@@ -91,26 +239,48 @@ function extractJsonPayloadText(raw: string): string {
     return fenced[1].trim();
   }
 
-  const start = text.indexOf("[");
-  const end = text.lastIndexOf("]");
-  if (start !== -1 && end > start) {
-    return text.slice(start, end + 1).trim();
-  }
-
-  const objectStart = text.indexOf("{");
-  const objectEnd = text.lastIndexOf("}");
-  if (objectStart !== -1 && objectEnd > objectStart) {
-    return text.slice(objectStart, objectEnd + 1).trim();
+  if (expectedRoot === "object") {
+    const objectStart = text.indexOf("{");
+    const objectEnd = text.lastIndexOf("}");
+    if (objectStart !== -1 && objectEnd > objectStart) {
+      return text.slice(objectStart, objectEnd + 1).trim();
+    }
+  } else {
+    const arrayStart = text.indexOf("[");
+    const arrayEnd = text.lastIndexOf("]");
+    if (arrayStart !== -1 && arrayEnd > arrayStart) {
+      return text.slice(arrayStart, arrayEnd + 1).trim();
+    }
   }
 
   return text;
+}
+
+export async function generateFocusClarification(
+  connection: AiConnectionCredentials,
+  categoryName: string,
+  focusText: string
+): Promise<TopicClarification> {
+  const prompt = clarifyFocusPrompt(categoryName, focusText);
+  let raw: string;
+  switch (connection.provider) {
+    case "gemini": raw = await generateWithGemini(connection, prompt); break;
+    case "openai": raw = await generateWithOpenAi(connection, prompt); break;
+    case "anthropic": raw = await generateWithAnthropic(connection, prompt); break;
+    case "openrouter": raw = await generateWithOpenRouter(connection, prompt); break;
+    case "groq": raw = await generateWithGroq(connection, prompt); break;
+    default:
+      const _exhaustive: never = connection.provider;
+      throw new AiServiceError("unsupported_provider", `Provider "${_exhaustive}" is not supported yet.`);
+  }
+  return parseTopicClarificationFromText(raw);
 }
 
 export function parseRoadmapPlanFromText(raw: string): RoadmapPlan {
   const text = (raw ?? "").trim();
   if (!text) throw new AiServiceError("invalid_request", "Invalid roadmap response.");
 
-  const payloadText = extractJsonPayloadText(text);
+  const payloadText = extractJsonPayloadText(text, "object");
 
   let parsed: unknown;
   try {
@@ -173,7 +343,7 @@ export function parseQuizQuestionsFromText(raw: string): QuizQuestion[] {
   const text = (raw ?? "").trim();
   if (!text) throw new AiServiceError("invalid_request", "Invalid quiz response.");
 
-  const payloadText = extractJsonPayloadText(text);
+  const payloadText = extractJsonPayloadText(text, "array");
 
   let parsed: unknown;
   try {
@@ -201,7 +371,10 @@ export function parseQuizQuestionsFromText(raw: string): QuizQuestion[] {
       explanation: typeof q.explanation === "string" ? q.explanation.trim() : "",
     };
 
-    if (!normalized.prompt || normalized.options.length < 2 || !normalized.correctOptionId || !normalized.explanation) {
+    const optionIds = new Set(normalized.options.map((option) => option.id));
+    const hasDuplicateOptionIds = optionIds.size !== normalized.options.length;
+    const hasBlankOption = normalized.options.some((option) => !option.id || !option.text);
+    if (!normalized.prompt || normalized.options.length < 2 || hasDuplicateOptionIds || hasBlankOption || !optionIds.has(normalized.correctOptionId) || !normalized.explanation) {
       throw new AiServiceError("invalid_request", "Invalid quiz response.");
     }
 
@@ -253,7 +426,7 @@ export function parseGoalSuggestionsFromText(raw: string): GoalSuggestion[] {
   const text = (raw ?? "").trim();
   if (!text) throw new AiServiceError("invalid_request", "Invalid goal suggestion response.");
 
-  const payloadText = extractJsonPayloadText(text);
+  const payloadText = extractJsonPayloadText(text, "array");
 
   let parsed: unknown;
   try {

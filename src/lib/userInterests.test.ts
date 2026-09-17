@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { buildInterestSuggestion, hasCompletedInterestSelection, normalizeUserInterests, setUserInterestLevel } from "./userInterests";
+import { buildInterestSuggestion, hasCompletedInterestSelection, normalizeUserInterests, setUserInterestLevel, setUserInterestSubtopics } from "./userInterests";
 
 describe("hasCompletedInterestSelection", () => {
   it("treats an empty or missing interest list as not yet onboarded", () => {
@@ -27,6 +27,12 @@ describe("normalizeUserInterests", () => {
       { categoryId: "cat-1", level: null },
       { categoryId: "cat-2", level: null },
     ]);
+  });
+
+  it("trims and deduplicates selected subtopics", () => {
+    const result = normalizeUserInterests([{ categoryId: "cat-1", level: null, subtopics: [" React ", "React", "TypeScript"] }]);
+
+    assert.deepEqual(result, [{ categoryId: "cat-1", level: null, subtopics: ["React", "TypeScript"] }]);
   });
 });
 
@@ -69,5 +75,11 @@ describe("setUserInterestLevel", () => {
       { categoryId: "cat-1", level: "advanced" },
       { categoryId: "cat-2", level: "basic" },
     ]);
+  });
+
+  it("updates subtopics without changing the selected level", () => {
+    const result = setUserInterestSubtopics([{ categoryId: "cat-1", level: "intermediate" }], "cat-1", ["React", "React"]);
+
+    assert.deepEqual(result, [{ categoryId: "cat-1", level: "intermediate", subtopics: ["React"] }]);
   });
 });

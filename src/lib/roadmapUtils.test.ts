@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { sanitizeRoadmapSteps, renumberSteps, buildPlaylistSearchQuery, goalDraftTargetDate } from "./roadmapUtils";
+import { sanitizeRoadmapSteps, sanitizeRoadmapStepDetails, renumberSteps, buildPlaylistSearchQuery, goalDraftTargetDate } from "./roadmapUtils";
 
 describe("sanitizeRoadmapSteps", () => {
   it("keeps valid roadmap steps and ignores blank or malformed entries", () => {
@@ -33,6 +33,42 @@ describe("sanitizeRoadmapSteps", () => {
       { title: "Final review", description: "", order: 5 },
     ]);
   });
+
+  it("keeps a step's details bullet array, trimming and dropping blanks", () => {
+    const result = sanitizeRoadmapSteps([
+      { title: "Speaking", description: "Practice out loud.", details: [" 10 phrases a day ", "", "Record yourself "], order: 0 },
+    ]);
+
+    assert.deepEqual(result, [
+      { title: "Speaking", description: "Practice out loud.", details: ["10 phrases a day", "Record yourself"], order: 0 },
+    ]);
+  });
+
+  it("omits the details field entirely (never an empty array) when there are no bullets", () => {
+    const result = sanitizeRoadmapSteps([
+      { title: "Foundation", description: "Start here.", details: [], order: 0 },
+      { title: "Practice", description: "Apply it.", order: 1 },
+    ]);
+
+    assert.deepEqual(result, [
+      { title: "Foundation", description: "Start here.", order: 0 },
+      { title: "Practice", description: "Apply it.", order: 1 },
+    ]);
+    assert.ok(!("details" in result[0]));
+  });
+});
+
+describe("sanitizeRoadmapStepDetails", () => {
+  it("returns undefined for null/empty input", () => {
+    assert.equal(sanitizeRoadmapStepDetails(null), undefined);
+    assert.equal(sanitizeRoadmapStepDetails(undefined), undefined);
+    assert.equal(sanitizeRoadmapStepDetails([]), undefined);
+    assert.equal(sanitizeRoadmapStepDetails(["", "  "]), undefined);
+  });
+
+  it("wraps a single string into a one-item list", () => {
+    assert.deepEqual(sanitizeRoadmapStepDetails("just one action"), ["just one action"]);
+  });
 });
 
 describe("renumberSteps", () => {
@@ -48,6 +84,14 @@ describe("renumberSteps", () => {
       { title: "Foundation", description: "Build confidence.", order: 1 },
       { title: "Practice", description: "", order: 2 },
     ]);
+  });
+
+  it("preserves details while renumbering", () => {
+    const result = renumberSteps([
+      { title: "Practice", description: "", order: 5, details: ["Do reps", "Log progress"] },
+    ]);
+
+    assert.deepEqual(result, [{ title: "Practice", description: "", order: 0, details: ["Do reps", "Log progress"] }]);
   });
 });
 

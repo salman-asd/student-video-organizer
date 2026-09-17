@@ -124,6 +124,7 @@ export type InterestLevel = "basic" | "intermediate" | "advanced" | null;
 export interface UserInterest {
   categoryId: string;
   level: InterestLevel;
+  subtopics?: string[];
 }
 
 export interface UserProfile {
@@ -167,7 +168,12 @@ export type RoadmapLevel = "basic" | "intermediate" | "advanced";
 export interface RoadmapStep {
   title: string;
   description: string;
+  /** Optional bullet points that break the step into concrete actions/checkpoints.
+   *  Rendered as a real <ul> under the description. Free-form; AI-generated steps
+   *  are asked to always provide at least one bullet. */
+  details?: string[];
   order: number;
+  week?: number;
 }
 
 export interface RoadmapTemplate {
@@ -183,6 +189,7 @@ export interface LearningRoadmap {
   categoryId: string;
   level: RoadmapLevel;
   steps: RoadmapStep[];
+  source?: "template" | "generated" | "imported";
   adoptedFromTemplateAt: Timestamp | null;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
