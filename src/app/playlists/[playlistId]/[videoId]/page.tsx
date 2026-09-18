@@ -10,7 +10,7 @@ import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { VideoActionsBar } from "@/components/video/VideoActionsBar";
 import { PlaylistSidebar } from "@/components/video/PlaylistSidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RichTextEditor } from "@/components/ui/RichTextEditor";
+import { SummaryPane } from "@/components/video/SummaryPane";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -459,11 +459,10 @@ function PersonalVideoContent() {
                     </Button>
                   </div>
                 )}
-                <RichTextEditor
+                <SummaryPane
                   value={summary}
                   onChange={handleSummaryChange}
                   placeholder="Write your own summary…"
-                  className="min-h-[140px]"
                 />
                 {!isViewingOther && (
                   <p className="mt-1 text-xs text-muted-foreground">

@@ -61,8 +61,22 @@ function renderBlock(block: string): string {
     sections.push(`<ul>${listItems.map((item) => `<li>${markdownInlineToHtml(item)}</li>`).join("")}</ul>`);
   }
 
-  if (nonListLines.length > 0) {
-    sections.push(renderParagraph(nonListLines));
+  // Blockquotes: consecutive "&gt; " lines become one <blockquote>.
+  //
+  // This was previously unsupported — a "&gt; quoted" line fell through to
+  // renderParagraph and came out as an escaped literal "&gt;". Now that legacy
+  // markdown is migrated to HTML on first read (see src/lib/richText.ts), an
+  // unsupported case is no longer just "shown oddly", it's baked permanently
+  // into the stored document, so it needs handling here.
+  const quoteLines = nonListLines.filter(isMarkdownQuoteLine).map(stripMarkdownQuoteMarker);
+  const proseLines = nonListLines.filter((line) => !isMarkdownQuoteLine(line));
+
+  if (proseLines.length > 0) {
+    sections.push(renderParagraph(proseLines));
+  }
+
+  if (quoteLines.length > 0) {
+    sections.push(`<blockquote>${quoteLines.map((line) => markdownInlineToHtml(line)).join("<br />")}</blockquote>`);
   }
 
   return sections.join("");
@@ -89,6 +103,14 @@ function stripMarkdownHeading(value: string): string {
 
 function isMarkdownListItem(value: string): boolean {
   return /^[-*]\s+/.test(value) || /^\d+\.\s+/.test(value);
+}
+
+function isMarkdownQuoteLine(value: string): boolean {
+  return /^>\s?/.test(value);
+}
+
+function stripMarkdownQuoteMarker(value: string): string {
+  return value.replace(/^>\s?/, "").trim();
 }
 
 function stripMarkdownListMarker(value: string): string {

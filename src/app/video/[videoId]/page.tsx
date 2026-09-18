@@ -10,7 +10,7 @@ import { VideoActionsBar } from "@/components/video/VideoActionsBar";
 import { PlaylistSidebar } from "@/components/video/PlaylistSidebar";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RichTextEditor } from "@/components/ui/RichTextEditor";
+import { SummaryPane } from "@/components/video/SummaryPane";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -414,11 +414,10 @@ function VideoPageContent() {
                     Generate starter summary
                   </Button>
                 </div>
-                <RichTextEditor
+                <SummaryPane
                   value={summary}
                   onChange={handleSummaryChange}
                   placeholder="Write your own summary of this video's key ideas…"
-                  className="min-h-[140px]"
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
                   Autosaves as you type. Only visible to you (and admins). AI uses available YouTube captions to

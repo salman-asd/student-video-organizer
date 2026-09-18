@@ -100,3 +100,128 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ───────────────────────
+   Rich text content (summaries).
+
+   ONE stylesheet, applied to BOTH the editable surface and every read-only
+   render (the .rich-text-content class). That's the point: an editor whose
+   styling lives only in the editor's own class list always drifts from the
+   read-only views, so a heading looks like a heading while you type and like
+   ordinary body text once it's displayed.
+
+   This deliberately does NOT use Tailwind's `prose` classes. Those come from
+   @tailwindcss/typography, which is not a dependency of this project — so
+   every `prose prose-sm` class already in the codebase compiled to nothing.
+   Rather than take on a new dependency (and its opinionated defaults, which
+   would fight the app's own tokens), these rules are written against the
+   existing CSS custom properties, so they follow light/dark automatically.
+   ─────────────────────── */
+.rich-text-content {
+  line-height: 1.65;
+}
+
+.rich-text-content > * + * {
+  margin-top: 0.75rem;
+}
+
+.rich-text-content p {
+  margin: 0;
+}
+
+.rich-text-content h1,
+.rich-text-content h2,
+.rich-text-content h3,
+.rich-text-content h4 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.rich-text-content h1 { font-size: 1.5rem; }
+.rich-text-content h2 { font-size: 1.25rem; }
+.rich-text-content h3 { font-size: 1.1rem; }
+.rich-text-content h4 { font-size: 1rem; }
+
+.rich-text-content ul,
+.rich-text-content ol {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+
+/* An explicit disc/decimal is required: Tailwind's preflight resets
+   list-style for ol/ul, so without these two lines lists render as bare,
+   unmarked indented text. */
+.rich-text-content ul { list-style: disc; }
+.rich-text-content ol { list-style: decimal; }
+
+.rich-text-content li {
+  margin: 0.2rem 0;
+}
+
+.rich-text-content li > p {
+  margin: 0;
+}
+
+.rich-text-content blockquote {
+  border-left: 3px solid hsl(var(--accent));
+  padding-left: 0.85rem;
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-style: italic;
+}
+
+.rich-text-content strong { font-weight: 600; }
+.rich-text-content em { font-style: italic; }
+
+.rich-text-content code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: hsl(var(--muted));
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.3rem;
+}
+
+.rich-text-content pre {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  background: hsl(var(--muted));
+  border-radius: 0.375rem;
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+}
+
+.rich-text-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.rich-text-content hr {
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1rem 0;
+}
+
+/* Tiptap's placeholder extension marks an empty document with this class.
+   Previously the placeholder was passed as an `attributes.placeholder`
+   attribute, which renders nothing in a contenteditable element — the only
+   reason a "placeholder" ever appeared was the sr-only duplicate below it. */
+.rich-text-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground));
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* The editing surface is focusable, so give it the same focus ring as every
+   other input in the app rather than relying on the browser default. */
+.rich-text-editor .ProseMirror {
+  outline: none;
+}
+
+.rich-text-editor:focus-within {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
+}
