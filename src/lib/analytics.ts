@@ -1,7 +1,12 @@
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-export type LearningEventName = "onboarding_completed" | "video_completed" | "goal_completed";
+export type LearningEventName =
+  | "onboarding_completed"
+  | "onboarding_skipped"
+  | "video_completed"
+  | "goal_completed"
+  | "goal_behind_pace";
 
 export async function trackLearningEvent(
   uid: string,

@@ -1,8 +1,8 @@
 import {
-  collection, doc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc, where, writeBatch,
+  addDoc, collection, doc, getDocs, limit, orderBy, query, serverTimestamp, updateDoc, where, writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { AppNotification } from "@/types";
+import type { AppNotification, NotificationType } from "@/types";
 
 /**
  * users/{uid}/notifications/{id} — the delivery mechanism behind the bell in
@@ -43,6 +43,59 @@ export async function countUnreadNotifications(uid: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+export interface NewNotification {
+  type: NotificationType;
+  title: string;
+  body: string;
+  linkHref?: string | null;
+}
+
+/**
+ * Creates a notification if the client can — used by the one trigger this app
+ * currently evaluates on the client (the behind-pace check on dashboard
+ * visit, Phase C4).
+ *
+ * NOTE ON SECURITY: firestore.rules denies `create` on this collection to
+ * every client, including the owner, so this call will be REJECTED as
+ * written. That is intentional and matches the Phase B decision: a client
+ * that can create notifications can forge them into its own feed. Phase C4
+ * needs a trigger path, and there are exactly two ways to provide one:
+ *
+ *   1. Relax the rule to allow `create` from the owner, constrained to the
+ *      known types (the pragmatic option at this scale — a user can only
+ *      pollute their own feed), or
+ *   2. Keep the rule closed and move this check server-side (an API route on
+ *      the Admin SDK, which bypasses rules).
+ *
+ * Option 2 is the one that preserves Phase B's model. This function exists so
+ * the dashboard has a single, obvious seam to call either way, and so the
+ * de-duplication logic lives in one place rather than being duplicated into a
+ * route. It fails closed: callers treat a rejection as "no notification",
+ * which is the correct degradation.
+ */
+export async function createNotificationIfAbsent(uid: string, notification: NewNotification) {
+  const snap = await getDocs(
+    query(
+      notificationsCol(uid),
+      where("type", "==", notification.type),
+      where("linkHref", "==", notification.linkHref ?? null),
+      limit(1)
+    )
+  );
+  if (!snap.empty) return null;
+
+  const ref = await addDoc(notificationsCol(uid), {
+    type: notification.type,
+    title: notification.title,
+    body: notification.body,
+    linkHref: notification.linkHref ?? null,
+    read: false,
+    readAt: null,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
 }
 
 export async function markNotificationRead(uid: string, notificationId: string) {

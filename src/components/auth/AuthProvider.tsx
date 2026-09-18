@@ -13,7 +13,7 @@ import {
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { ensureUserHasDefaultCategories } from "@/lib/firestore/categoriesTags";
-import { hasCompletedInterestSelection, normalizeUserInterests } from "@/lib/userInterests";
+import { hasCompletedOnboarding, normalizeUserInterests } from "@/lib/userInterests";
 import type { UserProfile } from "@/types";
 
 interface AuthContextValue {
@@ -26,6 +26,8 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
+  /** Records that the user finished or explicitly skipped onboarding. */
+  completeOnboarding: () => Promise<void>;
 }
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
@@ -39,7 +41,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<User | null>(null);
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [loading, setLoading] = React.useState(true);
-  const needsOnboarding = !!profile && !hasCompletedInterestSelection(profile);
+  // Gated on the explicit "finished or skipped" flag, not on "has interests" —
+  // picking interests is optional, so a user who pressed "Skip for now" must
+  // not be bounced back into the flow forever. See hasCompletedOnboarding.
+  const needsOnboarding = !!profile && !hasCompletedOnboarding(profile);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -123,6 +128,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await updateProfile(cred.user, { displayName });
   }, []);
 
+  /** Marks onboarding done — called both on "Continue" (interests saved) and
+   *  on "Skip for now". Updated locally as well as in Firestore so the
+   *  redirect decision doesn't have to wait for a profile refetch. */
+  const completeOnboarding = React.useCallback(async () => {
+    if (!user) return;
+    const completedAt = serverTimestamp();
+    await updateDoc(doc(db, "users", user.uid), { onboardingCompletedAt: completedAt });
+    // hasCompletedOnboarding only asks whether the field is truthy, so any
+    // non-null marker flips needsOnboarding immediately — no refetch needed.
+    setProfile((prev) => (prev ? { ...prev, onboardingCompletedAt: completedAt as any } : prev));
+  }, [user]);
+
   const value: AuthContextValue = {
     user,
     profile,
@@ -133,6 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     resetPassword,
     register,
+    completeOnboarding,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

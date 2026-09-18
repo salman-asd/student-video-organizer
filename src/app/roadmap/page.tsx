@@ -3,6 +3,7 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -25,7 +26,9 @@ import { searchPlaylistsForStep, type YouTubePlaylistSearchResult } from "@/lib/
 import { suggestGoalsFromRoadmap, type GoalSuggestion } from "@/lib/goalSuggestionsClient";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import type { Category, LearningRoadmap, RoadmapLevel, RoadmapStep, UserInterest } from "@/types";
+import { parseOnboardingRoadmapOffer, defaultGoalTargetDateForStep } from "@/lib/roadmapGoalUtils";
+import { listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
+import type { Category, LearningRoadmap, PersonalPlaylist, RoadmapLevel, RoadmapStep, UserInterest } from "@/types";
 import {
   Check, Sparkles, PencilLine, GripVertical, Plus, Trash2, Youtube, Target, X, Import, Copy, Eye,
   ChevronDown, ChevronRight,
@@ -42,6 +45,7 @@ export default function RoadmapPage() {
 
 function RoadmapContent() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [interests, setInterests] = React.useState<UserInterest[]>([]);
   const [personalRoadmaps, setPersonalRoadmaps] = React.useState<Record<string, LearningRoadmap[]>>({});
@@ -81,6 +85,59 @@ function RoadmapContent() {
   React.useEffect(() => { load(); }, [load]);
 
   const interestCards = categories.filter((category) => interests.some((interest) => interest.categoryId === category.id));
+
+  // ── Onboarding hand-off (Phase C1) ──
+  // Onboarding sends us here with the interest the user just picked. We show
+  // an explicit offer rather than generating silently, and the offer is
+  // dismissible — landing on the page later (without the param) never
+  // re-triggers it.
+  const onboardingOffer = React.useMemo(
+    () => parseOnboardingRoadmapOffer(searchParams.get("generate")),
+    [searchParams]
+  );
+  const [offerDismissed, setOfferDismissed] = React.useState(false);
+  // Tracks which offer we've already auto-revealed, so a re-render (or a
+  // user collapsing the card again) doesn't keep forcing it back open.
+  const [offerRevealedFor, setOfferRevealedFor] = React.useState<string | null>(null);
+  const [offerGenerating, setOfferGenerating] = React.useState(false);
+
+  React.useEffect(() => {
+    if (loading || offerDismissed || !onboardingOffer) return;
+    if (offerRevealedFor === onboardingOffer.categoryId) return;
+    // Reveal the offered category's panel so the roadmap the user is about to
+    // say yes to appears in place, instead of behind a collapsed card.
+    if (interestCards.some((card) => card.id === onboardingOffer.categoryId)) {
+      setOfferRevealedFor(onboardingOffer.categoryId);
+      setExpandedIds((prev) => new Set(prev).add(onboardingOffer.categoryId));
+    }
+  }, [loading, offerDismissed, onboardingOffer, offerRevealedFor, interestCards]);
+
+  async function acceptOnboardingOffer() {
+    if (!onboardingOffer) return;
+    setOfferGenerating(true);
+    try {
+      await generateOrRegenerate(onboardingOffer.categoryId, onboardingOffer.level, undefined);
+      setOfferDismissed(true);
+    } finally {
+      setOfferGenerating(false);
+    }
+  }
+
+  /**
+   * Phase C1: interests changed in Settings AFTER a roadmap was generated.
+   * Regenerating silently would throw away a roadmap the user may have
+   * hand-edited, so instead we surface a prompt with an explicit action.
+   */
+  const staleRoadmapInterests = React.useMemo(() => {
+    const roadmapCategoryIds = new Set(Object.keys(personalRoadmaps).filter((id) => (personalRoadmaps[id] ?? []).some((r) => r.steps.length > 0)));
+    const interestIds = new Set(interests.map((interest) => interest.categoryId));
+    // Interests that have a generated roadmap are "covered". Roadmaps whose
+    // category is no longer an interest are "stale" and worth mentioning.
+    const orphaned = [...roadmapCategoryIds].filter((id) => !interestIds.has(id));
+    return orphaned
+      .map((id) => categories.find((category) => category.id === id))
+      .filter((category): category is Category => !!category);
+  }, [personalRoadmaps, interests, categories]);
 
   // Auto-expand the only interest so a first-time / single-topic user
   // isn't stuck clicking to reveal the one thing on the page.
@@ -149,6 +206,30 @@ function RoadmapContent() {
       await load();
     } catch (error: any) {
       toast.error(error?.message || "Unable to switch level.");
+    }
+  }
+
+  /**
+   * Phase C2: turns a roadmap step into a real, trackable Goal.
+   *
+   * Links whatever content that step already points at (the playlists the
+   * user added to their library from this roadmap via "Add to my Playlists"),
+   * so the goal's progress reflects real watch state instead of being a plain
+   * checkbox. The target date defaults off the step's own week.
+   */
+  async function createGoalFromStep(step: RoadmapStep, index: number, linkedPlaylists: { id: string; title: string }[]) {
+    if (!user) return;
+    const goalTitle = step.title.trim() || `Step ${index + 1}`;
+    try {
+      await addGoal(user.uid, {
+        title: goalTitle,
+        notes: step.description?.trim() || `From your roadmap step ${index + 1}.`,
+        targetDate: defaultGoalTargetDateForStep(step),
+        linkedPlaylists: linkedPlaylists.length > 0 ? linkedPlaylists : undefined,
+      });
+      toast.success(`Added "${goalTitle}" to your Goals.`);
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to create a goal for this step.");
     }
   }
 
@@ -253,6 +334,46 @@ function RoadmapContent() {
           <p className="text-muted-foreground">Choose a level for each interest and keep a personal, editable roadmap for it.</p>
         </div>
 
+        {!loading && onboardingOffer && !offerDismissed && (
+          <Card className="border-accent/50 bg-accent/5">
+            <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <p className="flex items-center gap-2 text-sm font-medium text-accent">
+                  <Sparkles className="h-4 w-4" /> One more step
+                </p>
+                <h2 className="font-display text-lg font-semibold">
+                  Build a roadmap for {onboardingOffer.categoryName}?
+                </h2>
+                <p className="max-w-xl text-sm text-muted-foreground">
+                  We&apos;ll generate a {onboardingOffer.level} roadmap from the interest you just picked. You can
+                  edit, regenerate, or delete it afterwards.
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <Button onClick={() => void acceptOnboardingOffer()} loading={offerGenerating}>
+                  <Sparkles className="mr-2 h-4 w-4" /> {offerGenerating ? "Generating…" : "Generate roadmap"}
+                </Button>
+                <Button variant="ghost" onClick={() => setOfferDismissed(true)} disabled={offerGenerating}>
+                  Not now
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {!loading && staleRoadmapInterests.length > 0 && (
+          <Card className="border-dashed">
+            <CardContent className="space-y-2 p-4">
+              <p className="text-sm font-medium">Your interests changed since you built these roadmaps</p>
+              <p className="text-sm text-muted-foreground">
+                You no longer list {staleRoadmapInterests.map((c) => c.name).join(", ")} as an interest, but the
+                roadmaps you generated for them are still here. Nothing is deleted automatically — regenerate them
+                from the cards below, or add the interest back in Settings to keep tracking them.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {loading && <p className="text-sm text-muted-foreground">Loading roadmap data…</p>}
 
         {!loading && interestCards.length === 0 && (
@@ -290,7 +411,7 @@ function RoadmapContent() {
               {clarifyOptions && (
                 <div className="space-y-2 rounded-md border border-dashed border-border p-3">
                   <p className="text-sm text-muted-foreground">
-                    Did you mean one of these for "{clarifyPendingName}"?
+                    Did you mean one of these for &quot;{clarifyPendingName}&quot;?
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {clarifyOptions.map((option) => (
@@ -305,7 +426,7 @@ function RoadmapContent() {
                       </Button>
                     ))}
                     <Button variant="ghost" size="sm" onClick={() => void createInterest(clarifyPendingName)}>
-                      Use "{clarifyPendingName}" as typed
+                      Use &quot;{clarifyPendingName}&quot; as typed
                     </Button>
                   </div>
                 </div>
@@ -402,6 +523,7 @@ function RoadmapContent() {
                       roadmap={activeRoadmap}
                       onGenerateOrRegenerate={() => generateOrRegenerate(category.id, level, activeRoadmap)}
                       onSaveSteps={(steps) => saveRoadmapSteps(category.id, level, activeRoadmap, steps)}
+                      onCreateGoal={createGoalFromStep}
                     />
                   )}
                 </CardContent>
@@ -502,7 +624,7 @@ function FocusEditor({
       {clarifyOptions && (
         <div className="space-y-2 rounded-md border border-dashed border-border p-2">
           <p className="text-xs text-muted-foreground">
-            "{value}" could mean a few different things within {categoryName || "this topic"} — did you mean:
+            &quot;{value}&quot; could mean a few different things within {categoryName || "this topic"} — did you mean:
           </p>
           <div className="flex flex-wrap gap-2">
             {clarifyOptions.map((option) => (
@@ -518,7 +640,7 @@ function FocusEditor({
               </Button>
             ))}
             <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => void commit(value)}>
-              Use "{value}" as typed
+              Use &quot;{value}&quot; as typed
             </Button>
           </div>
         </div>
@@ -536,6 +658,7 @@ function RoadmapPanel({
   roadmap,
   onGenerateOrRegenerate,
   onSaveSteps,
+  onCreateGoal,
 }: {
   category: Category;
   level: RoadmapLevel;
@@ -543,6 +666,7 @@ function RoadmapPanel({
   roadmap: LearningRoadmap | undefined;
   onGenerateOrRegenerate: () => Promise<void>;
   onSaveSteps: (steps: RoadmapStep[]) => void;
+  onCreateGoal: (step: RoadmapStep, index: number, linkedPlaylists: { id: string; title: string }[]) => Promise<void>;
 }) {
   const { user } = useAuth();
   const [mode, setMode] = React.useState<"view" | "customize">("view");
@@ -648,9 +772,15 @@ function RoadmapPanel({
       )}
 
       {mode === "view" ? (
-        <RoadmapView roadmap={roadmap} />
+        <RoadmapView roadmap={roadmap} onCreateGoal={onCreateGoal} />
       ) : (
-        <RoadmapEditor category={category} level={level} roadmap={roadmap} onSaveSteps={onSaveSteps} />
+        <RoadmapEditor
+          category={category}
+          level={level}
+          roadmap={roadmap}
+          onSaveSteps={onSaveSteps}
+          onCreateGoal={onCreateGoal}
+        />
       )}
     </div>
   );
@@ -658,7 +788,16 @@ function RoadmapPanel({
 
 // ── Read-only view: description as a summary line, details as bullets. ──
 
-function RoadmapView({ roadmap }: { roadmap: LearningRoadmap | undefined }) {
+function RoadmapView({
+  roadmap,
+  onCreateGoal,
+}: {
+  roadmap: LearningRoadmap | undefined;
+  onCreateGoal: (step: RoadmapStep, index: number, linkedPlaylists: { id: string; title: string }[]) => Promise<void>;
+}) {
+  const [goalStepIndex, setGoalStepIndex] = React.useState<number | null>(null);
+  const [creatingGoal, setCreatingGoal] = React.useState(false);
+
   if (!roadmap || roadmap.steps.length === 0) {
     return (
       <p className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
@@ -689,11 +828,138 @@ function RoadmapView({ roadmap }: { roadmap: LearningRoadmap | undefined }) {
                   ))}
                 </ul>
               )}
+
+              {/* Phase C2: "here's a roadmap" → "here's a roadmap with
+                  trackable commitments". This is the gap between Study Lamp
+                  and a plain YouTube playlist. */}
+              {goalStepIndex === index ? (
+                <GoalFromStepForm
+                  step={step}
+                  index={index}
+                  busy={creatingGoal}
+                  onCancel={() => setGoalStepIndex(null)}
+                  onConfirm={async (linkedPlaylists) => {
+                    setCreatingGoal(true);
+                    try {
+                      await onCreateGoal(step, index, linkedPlaylists);
+                      setGoalStepIndex(null);
+                    } finally {
+                      setCreatingGoal(false);
+                    }
+                  }}
+                />
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-2 h-7 px-2 text-xs"
+                  onClick={() => setGoalStepIndex(index)}
+                >
+                  <Target className="mr-1 h-3.5 w-3.5" /> Set a goal for this step
+                </Button>
+              )}
             </div>
           </div>
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * Inline "set a goal from this step" form.
+ *
+ * Asks which of the user's personal playlists this goal should track rather
+ * than guessing: a roadmap step has no stored link to a playlist (suggested
+ * playlists are offered at edit time and imported by the user), and a goal
+ * linked to the wrong playlist would show confidently wrong progress, which
+ * is worse than showing no progress at all. Skipping the step entirely just
+ * creates a goal with its own target date.
+ */
+function GoalFromStepForm({
+  step,
+  index,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  step: RoadmapStep;
+  index: number;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (linkedPlaylists: { id: string; title: string }[]) => Promise<void>;
+}) {
+  const { user } = useAuth();
+  const [playlists, setPlaylists] = React.useState<PersonalPlaylist[]>([]);
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+  const [loadingPlaylists, setLoadingPlaylists] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    listPersonalPlaylists(user.uid)
+      .then((next) => {
+        if (!cancelled) setPlaylists(next);
+      })
+      .catch(() => {
+        if (!cancelled) setPlaylists([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingPlaylists(false);
+      });
+    return () => { cancelled = true; };
+  }, [user]);
+
+  const linked = playlists
+    .filter((playlist) => selectedIds.includes(playlist.id))
+    .map((playlist) => ({ id: playlist.id, title: playlist.title }));
+
+  return (
+    <div className="mt-2 space-y-2 rounded-md border-dashed border-accent/50 bg-accent/5 p-3">
+      <p className="text-xs font-medium">
+        New goal: {step.title || `Step ${index + 1}`}
+      </p>
+      <p className="text-[11px] text-muted-foreground">
+        Due {defaultGoalTargetDateForStep(step)}
+        {step.week ? ` · step is in week ${step.week}` : " · defaults to 2 weeks out (this step has no week set)"}
+      </p>
+
+      {loadingPlaylists ? (
+        <p className="text-[11px] text-muted-foreground">Loading your playlists…</p>
+      ) : playlists.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          No personal playlists yet — the goal will be created without linked content, and you can link it later from{" "}
+          <Link href="/goals" className="font-medium text-accent hover:underline">Goals</Link>.
+        </p>
+      ) : (
+        <div className="space-y-1">
+          <p className="text-[11px] text-muted-foreground">Track progress against (optional):</p>
+          <div className="flex flex-wrap gap-1.5">
+            {playlists.slice(0, 12).map((playlist) => {
+              const active = selectedIds.includes(playlist.id);
+              return (
+                <button
+                  key={playlist.id}
+                  type="button"
+                  onClick={() => setSelectedIds((prev) => active ? prev.filter((id) => id !== playlist.id) : [...prev, playlist.id])}
+                  className={`rounded-full border px-2.5 py-1 text-xs transition ${active ? "border-accent bg-accent/10 text-accent" : "border-border bg-background hover:border-accent/50"}`}
+                >
+                  {active && <Check className="mr-1 inline h-3 w-3" />}
+                  {playlist.title}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2 pt-1">
+        <Button size="sm" onClick={() => void onConfirm(linked)} loading={busy} disabled={loadingPlaylists}>
+          <Target className="mr-1 h-3.5 w-3.5" /> {busy ? "Adding…" : "Add goal"}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onCancel} disabled={busy}>Cancel</Button>
+      </div>
+    </div>
   );
 }
 
@@ -704,11 +970,13 @@ function RoadmapEditor({
   level,
   roadmap,
   onSaveSteps,
+  onCreateGoal,
 }: {
   category: Category;
   level: RoadmapLevel;
   roadmap: LearningRoadmap | undefined;
   onSaveSteps: (steps: RoadmapStep[]) => void;
+  onCreateGoal: (step: RoadmapStep, index: number, linkedPlaylists: { id: string; title: string }[]) => Promise<void>;
 }) {
   const { user } = useAuth();
   const steps = roadmap?.steps ?? [];
@@ -949,6 +1217,14 @@ function RoadmapEditor({
                   >
                     <Youtube className="mr-1 h-3.5 w-3.5" />
                     {playlistLoading === index ? "Searching…" : "Suggested playlists"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => void onCreateGoal(step, index, addedPlaylists)}
+                  >
+                    <Target className="mr-1 h-3.5 w-3.5" /> Set a goal for this step
                   </Button>
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-destructive" onClick={() => removeStep(index)}>
                     <Trash2 className="mr-1 h-3.5 w-3.5" /> Remove

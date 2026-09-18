@@ -137,6 +137,13 @@ export interface UserProfile {
   createdAt: Timestamp | null;
   lastActiveAt: Timestamp | null;
   interests?: UserInterest[];
+  /** Set the first time the user finishes OR explicitly skips onboarding.
+   *  Onboarding's own copy of `interests` can legitimately be empty (the
+   *  whole flow is optional), so "has this user seen onboarding?" cannot be
+   *  inferred from interests alone — without this flag a user who chose
+   *  "Skip for now" would be bounced back into onboarding on every subsequent
+   *  visit. */
+  onboardingCompletedAt?: Timestamp | null;
   /** Denormalized, cheap-to-read counters updated by client writes at
    *  meaningful events only (not on every keystroke) so the admin table
    *  can render without fanning out reads across every student. */
@@ -453,6 +460,19 @@ export type NotificationType =
   | "goal_pace"
   | "roadmap_ready"
   | "system";
+
+/**
+ * A step in the onboarding → roadmap hand-off. Built once when onboarding
+ * completes, then carried on the URL (`/roadmap?from=onboarding&generate=…`)
+ * so the roadmap page can offer "generate this now" without re-deriving
+ * anything — and without writing a half-configured roadmap the user then has
+ * to clean up if they decline.
+ */
+export interface OnboardingRoadmapOffer {
+  categoryId: string;
+  categoryName: string;
+  level: RoadmapLevel;
+}
 
 /**
  * One in-app notification, stored at users/{uid}/notifications/{id}.

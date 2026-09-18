@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -24,7 +25,7 @@ import { listPersonalPlaylists, listAllPersonalVideos } from "@/lib/firestore/pe
 import {
   describeDueDate, isGoalOverdue, getGoalLinkedPlaylists, getGoalLinkedVideos, calculateGoalProgress, computeDailyPace,
 } from "@/lib/goalUtils";
-import { todayKey } from "@/lib/utils";
+import { cn, todayKey } from "@/lib/utils";
 import type { Goal, PersonalPlaylist, PersonalVideo, PriorityLevel } from "@/types";
 import {
   Target, Trash2, Pencil, Plus, ListVideo, CalendarClock, CheckCircle2, Flag, Search, X, PlayCircle,
@@ -73,6 +74,12 @@ export default function GoalsPage() {
 
 function GoalsContent() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
+  // A goal-pace notification links to /goals?goal=<id>. Highlighting the
+  // arrived-at goal keeps that link meaningful instead of dropping the user
+  // into an undifferentiated list of every goal they have.
+  const highlightedGoalId = searchParams.get("goal");
+  const highlightRef = React.useRef<HTMLDivElement | null>(null);
   const [goals, setGoals] = React.useState<Goal[]>([]);
   const [playlists, setPlaylists] = React.useState<PersonalPlaylist[]>([]);
   // Every personal video across every playlist, fetched once. Goal progress
@@ -109,6 +116,27 @@ function GoalsContent() {
 
   React.useEffect(() => { refresh(); }, [refresh]);
 
+  // A highlighted goal may be filtered out of view or sorted to the bottom,
+  // which would make the notification's link silently do nothing. Reset to
+  // "All" so the goal the user was sent to is guaranteed to be rendered.
+  React.useEffect(() => {
+    if (highlightedGoalId) setFilterTab("all");
+  }, [highlightedGoalId]);
+
+  const highlightVisible = React.useMemo(
+    () => !!highlightedGoalId && goals.some((goal) => goal.id === highlightedGoalId),
+    [highlightedGoalId, goals]
+  );
+
+  React.useEffect(() => {
+    if (loading || !highlightVisible) return;
+    // Wait a frame so the card exists before scrolling to it.
+    const handle = requestAnimationFrame(() => {
+      highlightRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => cancelAnimationFrame(handle);
+  }, [loading, highlightVisible]);
+
   const today = todayKey();
 
   const stats = React.useMemo(() => ({
@@ -123,6 +151,13 @@ function GoalsContent() {
     if (filterTab === "active") list = list.filter((g) => !g.completed);
     else if (filterTab === "completed") list = list.filter((g) => g.completed);
     else if (filterTab === "overdue") list = list.filter((g) => isGoalOverdue(g));
+
+    // Pin the goal a notification linked to at the top so it's the first thing
+    // the user sees, regardless of the chosen sort.
+    if (highlightedGoalId) {
+      list.sort((a, b) => (a.id === highlightedGoalId ? -1 : b.id === highlightedGoalId ? 1 : 0));
+      return list;
+    }
 
     list.sort((a, b) => {
       if (sortMode === "alphabetical") return a.title.localeCompare(b.title);
@@ -139,7 +174,7 @@ function GoalsContent() {
       return tsMillis(b.createdAt) - tsMillis(a.createdAt);
     });
     return list;
-  }, [goals, filterTab, sortMode]);
+  }, [goals, filterTab, sortMode, highlightedGoalId]);
 
   function openAddDialog() {
     setEditingGoal(null);
@@ -311,8 +346,17 @@ function GoalsContent() {
               const pace = computeDailyPace(g, allVideos, new Date(`${today}T12:00:00`));
               const hasLinkedContent = linkedPlaylists.length > 0 || linkedVideos.length > 0;
 
+              const isHighlighted = g.id === highlightedGoalId;
+
               return (
-                <Card key={g.id} className={g.completed ? "opacity-70" : ""}>
+                <Card
+                  key={g.id}
+                  ref={isHighlighted ? (el) => { highlightRef.current = el; } : undefined}
+                  className={cn(
+                    g.completed ? "opacity-70" : "",
+                    isHighlighted && "border-accent ring-1 ring-accent/40"
+                  )}
+                >
                   <CardContent className="space-y-2.5 p-3.5">
                     <div className="flex items-start gap-3">
                       <Checkbox

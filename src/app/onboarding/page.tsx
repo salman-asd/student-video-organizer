@@ -11,8 +11,8 @@ import { createCategory, listCategories } from "@/lib/firestore/categoriesTags";
 import { db } from "@/lib/firebase";
 import { getDefaultSubcategoriesForMain, validateCustomInterestName, validateCustomSubtopicName } from "@/lib/defaultTaxonomy";
 import { normalizeUserInterests } from "@/lib/userInterests";
-import type { Category, UserInterest } from "@/types";
-import { ChevronRight, Check } from "lucide-react";
+import type { Category, OnboardingRoadmapOffer, UserInterest } from "@/types";
+import { ChevronRight, Check, SkipForward } from "lucide-react";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { toast } from "sonner";
 import { buildInterestSuggestion } from "@/lib/userInterests";
@@ -20,7 +20,7 @@ import { trackLearningEvent } from "@/lib/analytics";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, completeOnboarding } = useAuth();
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [selected, setSelected] = React.useState<string[]>([]);
   const [selectedSubtopics, setSelectedSubtopics] = React.useState<Record<string, string[]>>({});
@@ -159,6 +159,54 @@ export default function OnboardingPage() {
     }
   }
 
+  /**
+   * Hands off to the roadmap page with the interests the user just picked,
+   * as a query param rather than a write. Nothing is generated here: a
+   * roadmap costs an AI call and takes real time, and silently generating
+   * one (or worse, generating one the user then has to delete) is the
+   * surprising behavior. The roadmap page reads this param and shows an
+   * explicit "generate this now?" offer.
+   */
+  function roadmapHandoffHref(interests: UserInterest[]): string {
+    if (interests.length === 0) return "/roadmap";
+
+    // The offer only carries ONE category. Rather than arbitrarily picking
+    // (which would silently drop the rest of what they just chose), show the
+    // prompt only when there's a single clear answer; a multi-interest user
+    // lands on the roadmap page with their interests already saved and picks
+    // there. They're told so via the toast below.
+    if (interests.length > 1) return "/roadmap?from=onboarding";
+
+    const categoryId = interests[0].categoryId;
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category) return "/roadmap?from=onboarding";
+
+    const offer: OnboardingRoadmapOffer = {
+      categoryId,
+      categoryName: category.name,
+      level: interests[0].level ?? "basic",
+    };
+    return `/roadmap?from=onboarding&generate=${encodeURIComponent(JSON.stringify(offer))}`;
+  }
+
+  /** "Skip for now" — records that onboarding is done so the user isn't sent
+   *  back here on every visit, and sends them to the dashboard, where the
+   *  existing "choose your learning focus" prompt still lets them set
+   *  interests later. Nothing is written to `interests`. */
+  async function handleSkip() {
+    if (!user) return;
+    setSaving(true);
+    try {
+      await completeOnboarding();
+      void trackLearningEvent(user.uid, "onboarding_skipped", {});
+      router.replace("/dashboard");
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to skip onboarding right now.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSave() {
     if (!user) return;
 
@@ -189,9 +237,15 @@ export default function OnboardingPage() {
         }))
       );
       await updateDoc(doc(db, "users", user.uid), { interests: next });
+      await completeOnboarding();
       void trackLearningEvent(user.uid, "onboarding_completed", { interestCount: next.length });
-      toast.success("Your interests were saved.");
-      router.replace("/dashboard");
+
+      if (next.length > 1) {
+        toast.success(`Saved ${next.length} topics. Pick one on the next screen to build its roadmap.`);
+      } else {
+        toast.success("Your interests were saved.");
+      }
+      router.replace(roadmapHandoffHref(next));
     } catch (error: any) {
       toast.error(error?.message || "Unable to save your interests.");
     } finally {
@@ -352,8 +406,11 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            <div className="flex justify-end pt-2">
-              <Button onClick={() => void handleSave()} disabled={!allSelected || saving}>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+              <Button variant="ghost" onClick={() => void handleSkip()} disabled={saving}>
+                <SkipForward className="mr-2 h-4 w-4" /> Skip for now
+              </Button>
+              <Button onClick={() => void handleSave()} disabled={!allSelected || saving} loading={saving}>
                 {saving ? "Saving…" : "Continue"}
                 <ChevronRight className="ml-2 h-4 w-4" />
               </Button>

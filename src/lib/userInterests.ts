@@ -146,3 +146,21 @@ export function hasCompletedInterestSelection(profileLike: { interests?: Array<P
   const interests = normalizeUserInterests(profileLike?.interests ?? []);
   return interests.length > 0;
 }
+
+/**
+ * Whether this user has finished (or explicitly skipped) onboarding.
+ *
+ * Deliberately distinct from hasCompletedInterestSelection: picking interests
+ * is optional, so "has interests" is NOT the same question as "has seen
+ * onboarding". A user who presses "Skip for now" sets
+ * onboardingCompletedAt and must never be sent back through the flow, even
+ * though their interests list is still empty. The interests check is kept as
+ * a fallback so accounts created before this flag existed are not dumped back
+ * into onboarding once they've already chosen topics.
+ */
+export function hasCompletedOnboarding(
+  profileLike: { interests?: Array<Partial<UserInterest> | null | undefined> | null; onboardingCompletedAt?: unknown } | null | undefined
+): boolean {
+  if (profileLike?.onboardingCompletedAt) return true;
+  return hasCompletedInterestSelection(profileLike);
+}
