@@ -165,6 +165,24 @@ service cloud.firestore {
           optionalBool(request.resource.data, 'completed');
       }
 
+      // In-app notifications. Trigger-based notifications are written by
+      // server-side logic via the Admin SDK (which bypasses these rules), so
+      // `create` is denied to the client outright: no client action ever
+      // creates one directly, and allowing it would let any signed-in user
+      // forge a notification into their own feed. Clients only read them and
+      // flip `read` — that's an update, not a create.
+      match /notifications/{notificationId} {
+        allow read: if isSelf(uid) || isAdmin();
+        allow update: if (isSelf(uid) || isAdmin()) &&
+          optionalBool(request.resource.data, 'read') &&
+          optionalTimestamp(request.resource.data, 'readAt') &&
+          optionalString(request.resource.data, 'title', 500) &&
+          optionalString(request.resource.data, 'body', 2000) &&
+          optionalString(request.resource.data, 'linkHref', 500) &&
+          optionalEnum(request.resource.data, 'type', ['goal_pace', 'roadmap_ready', 'system']);
+        allow delete: if isSelf(uid) || isAdmin();
+      }
+
       match /quizAttempts/{attemptId} {
         allow read: if isSelf(uid) || isAdmin();
         allow create, update: if (isSelf(uid) || isAdmin()) &&

@@ -18,6 +18,7 @@ import type { FieldValue, Timestamp } from "firebase/firestore";
  *   users/{uid}/bookmarks/{videoId}/items/{bookmarkId}   timestamp bookmarks
  *   users/{uid}/favoritePlaylists/{playlistId}
  *   users/{uid}/goals/{goalId}
+ *   users/{uid}/notifications/{id}                       in-app notifications
  *   users/{uid}/categories/{categoryId}                   user's categories
  *
  * A single global "videos" collection group is intentionally avoided —
@@ -446,6 +447,37 @@ export interface PersonalVideo {
   completedAt: Timestamp | null;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
+}
+
+export type NotificationType =
+  | "goal_pace"
+  | "roadmap_ready"
+  | "system";
+
+/**
+ * One in-app notification, stored at users/{uid}/notifications/{id}.
+ *
+ * Deliberately shape-only: notifications are created by whichever
+ * server-side logic detects the triggering event (goal pace check, roadmap
+ * generation complete), read via a plain on-load query (no live listener —
+ * same free-tier reasoning as the rest of this app), and updated only when
+ * the user marks one read. That's why firestore.rules allows `update` from
+ * the client (read-state) but never `create` — see firestore.rules.
+ */
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  /** In-app route to open when the notification is clicked (e.g.
+   *  "/goals"). Optional so a purely informational notification can exist
+   *  without a destination. */
+  linkHref?: string | null;
+  read: boolean;
+  /** Set when marked read. Used to "mark all read" and to decide which
+   *  unread notifications still warrant a badge. */
+  readAt?: Timestamp | null;
+  createdAt: Timestamp | null;
 }
 
 export interface Goal {
