@@ -33,4 +33,20 @@ describe("toSummaryHtml", () => {
       "<p>Safe</p>",
     );
   });
+
+  it("still converts markdown when the plain text happens to contain '<' and '>' (e.g. comparisons or HTML mentions)", () => {
+    // Regression test: the previous detector (/<\/?[a-z][\s\S]*>/i, unanchored)
+    // matched a "<" and a later ">" *anywhere* in the string, so ordinary
+    // markdown mentioning something like "a<b" or "<div>" mid-sentence was
+    // misidentified as already-rendered HTML and never converted — leaving
+    // literal **bold**/- lists on screen instead of rendering them.
+    assert.equal(
+      toSummaryHtml("**English Tense**\n- Compare a<b to b>a in this lesson"),
+      "<h3>English Tense</h3><ul><li>Compare a&lt;b to b&gt;a in this lesson</li></ul>",
+    );
+    assert.equal(
+      toSummaryHtml("**HTML Basics**\nA <div> element groups content."),
+      "<h3>HTML Basics</h3><p>A &lt;div&gt; element groups content.</p>",
+    );
+  });
 });

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ListVideo, Clock, Star, Flag, PlayCircle, BookOpenCheck, Share2,
-  ShieldCheck, Users, FolderKanban, Tags, FileJson, Youtube, Target, X, Settings, ChevronDown, Sparkles,
+  ShieldCheck, Users, FolderKanban, Tags, FileJson, Youtube, Target, Compass, X, Settings, ChevronDown, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -82,7 +82,8 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
         </button>
         {settingsOpen && (
           <div id="settings-navigation" className="ml-4 mt-1 flex flex-col gap-1 border-l border-border pl-2">
-            <SidebarLink href="/settings" label="AI Connections" icon={Sparkles} active={pathname === "/settings"} onClick={onClose} />
+            <SidebarLink href="/settings/ai" label="AI Connections" icon={Sparkles} active={pathname.startsWith("/settings/ai") || pathname === "/settings"} onClick={onClose} />
+            <SidebarLink href="/settings/interests" label="Interests" icon={Compass} active={pathname.startsWith("/settings/interests")} onClick={onClose} />
             <SidebarLink href="/settings/categories" label="Categories" icon={FolderKanban} active={pathname.startsWith("/settings/categories")} onClick={onClose} />
             {isAdmin && (
               <SidebarLink href="/settings/tags" label="Tags" icon={Tags} active={pathname.startsWith("/settings/tags")} onClick={onClose} />

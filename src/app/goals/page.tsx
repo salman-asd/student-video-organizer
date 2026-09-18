@@ -226,12 +226,19 @@ function GoalsContent() {
     if (completed) toast.success("Nice work! Goal marked complete.");
   }
 
+  const [deletingGoalId, setDeletingGoalId] = React.useState<string | null>(null);
+
   async function handleDelete(goal: Goal) {
     if (!user) return;
     if (!confirm(`Delete the goal "${goal.title}"?`)) return;
-    await removeGoal(user.uid, goal.id);
-    toast.success("Goal deleted");
-    refresh();
+    setDeletingGoalId(goal.id);
+    try {
+      await removeGoal(user.uid, goal.id);
+      toast.success("Goal deleted");
+      refresh();
+    } finally {
+      setDeletingGoalId(null);
+    }
   }
 
   const filteredVideoOptions = React.useMemo(() => {
@@ -369,7 +376,7 @@ function GoalsContent() {
                       </div>
                       <div className="flex shrink-0 gap-1">
                         <Button variant="ghost" size="icon" onClick={() => openEditDialog(g)} aria-label="Edit goal"><Pencil className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(g)} aria-label="Delete goal"><Trash2 className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(g)} aria-label="Delete goal" loading={deletingGoalId === g.id}><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </div>
                   </CardContent>

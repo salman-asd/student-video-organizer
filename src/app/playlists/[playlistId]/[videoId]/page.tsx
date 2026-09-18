@@ -62,6 +62,9 @@ function PersonalVideoContent() {
   const [playlistTitle, setPlaylistTitle] = React.useState<string>("Current playlist");
   const [autoPlay, setAutoPlay] = React.useState(false);
   const [note, setNote] = React.useState("");
+  const [noteSaving, setNoteSaving] = React.useState(false);
+  const [noteDeleting, setNoteDeleting] = React.useState(false);
+  const [bookmarkSaving, setBookmarkSaving] = React.useState(false);
   const [summary, setSummary] = React.useState("");
   const [generatingSummary, setGeneratingSummary] = React.useState(false);
   const [quizQuestions, setQuizQuestions] = React.useState<QuizQuestion[]>([]);
@@ -131,15 +134,25 @@ function PersonalVideoContent() {
 
   async function handleSaveNote() {
     if (!ownerId) return;
-    await saveNote(ownerId, noteKey(videoId), note);
-    toast.success(note.trim() ? "Note saved" : "Note cleared");
+    setNoteSaving(true);
+    try {
+      await saveNote(ownerId, noteKey(videoId), note);
+      toast.success(note.trim() ? "Note saved" : "Note cleared");
+    } finally {
+      setNoteSaving(false);
+    }
   }
 
   async function handleDeleteNote() {
     if (!ownerId) return;
-    await deleteNote(ownerId, noteKey(videoId));
-    setNote("");
-    toast.success("Note deleted");
+    setNoteDeleting(true);
+    try {
+      await deleteNote(ownerId, noteKey(videoId));
+      setNote("");
+      toast.success("Note deleted");
+    } finally {
+      setNoteDeleting(false);
+    }
   }
 
   async function handleGenerateQuiz() {
@@ -203,11 +216,16 @@ function PersonalVideoContent() {
 
   async function handleAddBookmark() {
     if (!user || !video || !bookmarkLabel.trim()) return;
-    const seconds = parseTimeToSeconds(bookmarkTime) ?? Math.round(video.currentPositionSeconds || 0);
-    await addBookmark(user.uid, video.id, seconds, bookmarkLabel.trim());
-    setBookmarkLabel("");
-    setBookmarkTime("");
-    setBookmarks(await listBookmarks(user.uid, video.id));
+    setBookmarkSaving(true);
+    try {
+      const seconds = parseTimeToSeconds(bookmarkTime) ?? Math.round(video.currentPositionSeconds || 0);
+      await addBookmark(user.uid, video.id, seconds, bookmarkLabel.trim());
+      setBookmarkLabel("");
+      setBookmarkTime("");
+      setBookmarks(await listBookmarks(user.uid, video.id));
+    } finally {
+      setBookmarkSaving(false);
+    }
   }
 
   // Deliberately restricted to the owner viewing their own video: this
@@ -433,10 +451,11 @@ function PersonalVideoContent() {
                       size="sm"
                       className="gap-2"
                       onClick={handleGenerateSummary}
-                      disabled={generatingSummary}
+                      loading={generatingSummary}
+                      loadingText="Generating…"
                     >
                       <Sparkles className="h-4 w-4" />
-                      {generatingSummary ? "Generating…" : "Generate starter summary"}
+                      Generate starter summary
                     </Button>
                   </div>
                 )}
@@ -461,8 +480,12 @@ function PersonalVideoContent() {
                     className="min-h-[140px]"
                   />
                   <div className="flex flex-wrap gap-2">
-                    <Button onClick={handleSaveNote} size="sm">{note.trim() ? "Save note" : "Clear note"}</Button>
-                    <Button variant="outline" size="sm" onClick={handleDeleteNote} disabled={!note.trim()}>Delete note</Button>
+                    <Button onClick={handleSaveNote} size="sm" loading={noteSaving} loadingText={note.trim() ? "Saving…" : "Clearing…"}>
+                      {note.trim() ? "Save note" : "Clear note"}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleDeleteNote} disabled={!note.trim()} loading={noteDeleting} loadingText="Deleting…">
+                      Delete note
+                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">Private to this user. Hidden from any shared or public playlist/video views.</p>
                 </div>
@@ -470,8 +493,8 @@ function PersonalVideoContent() {
 
               <TabsContent value="quiz" className="space-y-4">
                 <div className="flex justify-end">
-                  <Button variant="outline" size="sm" onClick={handleGenerateQuiz} disabled={quizLoading}>
-                    {quizLoading ? "Generating…" : quizQuestions.length ? "Generate a new quiz" : "Generate quiz"}
+                  <Button variant="outline" size="sm" onClick={handleGenerateQuiz} loading={quizLoading} loadingText="Generating…">
+                    {quizQuestions.length ? "Generate a new quiz" : "Generate quiz"}
                   </Button>
                 </div>
 
@@ -539,7 +562,9 @@ function PersonalVideoContent() {
                 <div className="flex gap-2">
                   <Input value={bookmarkTime} onChange={(e) => setBookmarkTime(e.target.value)} placeholder="mm:ss (optional)" className="w-32" />
                   <Input value={bookmarkLabel} onChange={(e) => setBookmarkLabel(e.target.value)} placeholder="What's here?" className="flex-1" />
-                  <Button onClick={handleAddBookmark}>Add</Button>
+                  <Button onClick={handleAddBookmark} disabled={!bookmarkLabel.trim()} loading={bookmarkSaving} loadingText="Adding…">
+                    Add
+                  </Button>
                 </div>
                 <div className="space-y-1.5">
                   {bookmarks.length === 0 && <p className="text-sm text-muted-foreground">No bookmarks yet.</p>}

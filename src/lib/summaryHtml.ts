@@ -2,7 +2,7 @@ export function toSummaryHtml(value: string): string {
   const raw = (value ?? "").trim();
   if (!raw) return "";
 
-  if (/<\/?[a-z][\s\S]*>/i.test(raw)) {
+  if (looksLikeHtml(raw)) {
     return sanitizeSummaryHtml(raw);
   }
 
@@ -15,6 +15,21 @@ export function toSummaryHtml(value: string): string {
   if (blocks.length === 0) return "";
 
   return blocks.map(renderBlock).join("");
+}
+
+// Detects genuine, already-rendered HTML (from Tiptap's own getHTML(), or
+// from a previous run through this same function) so it isn't re-run
+// through markdown conversion. Every value this app ever produces starts
+// with a real block-level tag (<p>, <h1-6>, <ul>, <ol>, <blockquote>), so
+// anchoring to the start of the string is both sufficient and necessary:
+// the previous unanchored /<\/?[a-z][\s\S]*>/i check matched a "<" and a
+// later ">" ANYWHERE in the string, so plain markdown text that merely
+// mentioned something like "a<b" or "<div>" mid-sentence (comparisons,
+// code, HTML examples) was misidentified as pre-rendered HTML and skipped
+// markdown conversion entirely — leaving literal **bold**/- lists/# headings
+// on screen instead of rendering them.
+function looksLikeHtml(value: string): boolean {
+  return /^<\/?[a-z][a-z0-9]*(\s[^>]*)?>/i.test(value);
 }
 
 function sanitizeSummaryHtml(value: string): string {

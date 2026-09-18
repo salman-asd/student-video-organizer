@@ -21,6 +21,7 @@ import {
   createAiConnection,
   updateAiConnection,
   fetchAiModels,
+  fetchAiModelsForConnection,
 } from "@/lib/aiConnectionsClient";
 
 import { AI_PROVIDERS } from "@/types";
@@ -159,11 +160,71 @@ export function AiConnectionDialog({
       connection?.provider || "gemini"
     );
 
-    setAvailableModels([]);
+    // Seed with the connection's current model so the dropdown isn't
+    // empty/disabled before the user refreshes — the actual list of
+    // alternatives still needs a refresh (or a freshly loaded key on
+    // create), but the current selection stays visible and won't be lost.
+    setAvailableModels(
+      connection?.model
+        ? [{ id: connection.model, name: connection.model }]
+        : []
+    );
 
     setSaving(false);
     setModelLoading(false);
   }, [open, connection]);
+
+  // -------------------------------------------------------
+  // Refresh models for an existing connection, without
+  // requiring the API key to be re-entered. If the user has
+  // typed a new key (rotating it), that's used instead of the
+  // stored one — same override behavior handleSave already
+  // uses.
+  // -------------------------------------------------------
+
+  async function handleRefreshModels() {
+    if (!user || !connection) {
+      return;
+    }
+
+    setModelLoading(true);
+
+    try {
+      const idToken =
+        await user.getIdToken();
+
+      const models =
+        await fetchAiModelsForConnection(
+          idToken,
+          connection.id,
+          apiKey
+        );
+
+      setAvailableModels(models);
+
+      if (models.length === 0) {
+        toast.info(
+          "No models were returned by this provider."
+        );
+      } else {
+        toast.success(
+          `${models.length} models loaded.`
+        );
+      }
+    } catch (error: any) {
+      console.error(
+        "Failed to refresh AI models",
+        error
+      );
+
+      toast.error(
+        error?.message ||
+          "Unable to refresh models."
+      );
+    } finally {
+      setModelLoading(false);
+    }
+  }
 
   // -------------------------------------------------------
   // Load models
@@ -479,15 +540,19 @@ export function AiConnectionDialog({
                 type="button"
                 variant="outline"
                 onClick={
-                  handleLoadModels
+                  isEdit
+                    ? handleRefreshModels
+                    : handleLoadModels
                 }
                 disabled={
                   modelLoading ||
-                  !apiKey.trim()
+                  (!isEdit && !apiKey.trim())
                 }
               >
                 {modelLoading
                   ? "Loading..."
+                  : isEdit
+                  ? "Refresh models"
                   : "Load Models"}
               </Button>
             </div>
@@ -500,6 +565,13 @@ export function AiConnectionDialog({
                 ]
               }{" "}
               model to use.
+              {isEdit && (
+                <>
+                  {" "}
+                  Refreshing uses your saved key
+                  unless you type a new one above.
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -519,14 +591,11 @@ export function AiConnectionDialog({
 
           <Button
             onClick={handleSave}
-            disabled={
-              saving ||
-              !canSubmit
-            }
+            disabled={!canSubmit}
+            loading={saving}
+            loadingText="Saving…"
           >
-            {saving
-              ? "Saving..."
-              : isEdit
+            {isEdit
               ? "Save changes"
               : "Add connection"}
           </Button>

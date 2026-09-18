@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { RouteProgressBar } from "./RouteProgressBar";
 
 export function AppShell({
   children, onSearch,
@@ -16,6 +17,7 @@ export function AppShell({
     // playlist with hundreds of videos) scrolled the *whole* layout —
     // sidebar and header included — out of view.
     <div className="flex h-screen overflow-hidden">
+      <RouteProgressBar />
       <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header onMenuClick={() => setMobileOpen(true)} onSearch={onSearch} />

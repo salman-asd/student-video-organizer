@@ -116,6 +116,10 @@ function PersonalPlaylistEditorContent() {
   const [personalPlaylists, setPersonalPlaylists] = React.useState<PersonalPlaylist[]>([]);
   const [moveVideo, setMoveVideo] = React.useState<PersonalVideo | null>(null);
   const [moveTarget, setMoveTarget] = React.useState("");
+  const [movingVideo, setMovingVideo] = React.useState(false);
+  const [savingEdit, setSavingEdit] = React.useState(false);
+  const [savingDetails, setSavingDetails] = React.useState(false);
+  const [deletingPlaylist, setDeletingPlaylist] = React.useState(false);
 
   const [newUrl, setNewUrl] = React.useState("");
   const [newTitle, setNewTitle] = React.useState("");
@@ -474,13 +478,18 @@ function PersonalPlaylistEditorContent() {
 
   async function handleSaveEdit() {
     if (!editing) return;
-    await updatePersonalVideoMeta(ownerId, playlistId, editing.id, {
-      title: editing.title, videoUrl: editing.videoUrl, thumbnailUrl: editing.thumbnailUrl,
-      categoryId: editing.categoryId || null, tagIds: editing.tagIds || [],
-    });
-    setEditing(null);
-    toast.success("Video updated");
-    load();
+    setSavingEdit(true);
+    try {
+      await updatePersonalVideoMeta(ownerId, playlistId, editing.id, {
+        title: editing.title, videoUrl: editing.videoUrl, thumbnailUrl: editing.thumbnailUrl,
+        categoryId: editing.categoryId || null, tagIds: editing.tagIds || [],
+      });
+      setEditing(null);
+      toast.success("Video updated");
+      load();
+    } finally {
+      setSavingEdit(false);
+    }
   }
 
   async function handleSortModeChange(nextMode: PersonalPlaylistSortMode) {
@@ -611,18 +620,23 @@ function PersonalPlaylistEditorContent() {
 
   async function handleSavePlaylistDetails() {
     if (!playlist) return;
-    await renamePersonalPlaylist(
-      ownerId,
-      playlistId,
-      detailTitle.trim() || "Untitled playlist",
-      detailDescription.trim(),
-      detailVisibility,
-      detailCategoryId,
-      detailTagIds,
-    );
-    setDetailsOpen(false);
-    toast.success("Playlist updated");
-    load();
+    setSavingDetails(true);
+    try {
+      await renamePersonalPlaylist(
+        ownerId,
+        playlistId,
+        detailTitle.trim() || "Untitled playlist",
+        detailDescription.trim(),
+        detailVisibility,
+        detailCategoryId,
+        detailTagIds,
+      );
+      setDetailsOpen(false);
+      toast.success("Playlist updated");
+      load();
+    } finally {
+      setSavingDetails(false);
+    }
   }
 
   async function handleRemove(v: PersonalVideo) {
@@ -634,21 +648,32 @@ function PersonalPlaylistEditorContent() {
 
   async function handleMoveToPlaylist() {
     if (!moveVideo || !moveTarget) return;
-    const moved = await movePersonalVideoToPlaylist(ownerId, playlistId, moveTarget, moveVideo.id);
-    if (!moved) {
-      toast.error("That video is already in the selected playlist, or could not be moved.");
-      return;
+    setMovingVideo(true);
+    try {
+      const moved = await movePersonalVideoToPlaylist(ownerId, playlistId, moveTarget, moveVideo.id);
+      if (!moved) {
+        toast.error("That video is already in the selected playlist, or could not be moved.");
+        return;
+      }
+      setMoveVideo(null); setMoveTarget("");
+      toast.success("Video added to playlist");
+      load();
+    } finally {
+      setMovingVideo(false);
     }
-    setMoveVideo(null); setMoveTarget("");
-    toast.success("Video added to playlist");
-    load();
   }
 
   async function handleDeletePlaylist() {
     if (!confirm(`Delete "${playlist?.title}" and all its videos? This can't be undone.`)) return;
-    await deletePersonalPlaylist(ownerId, playlistId);
-    toast.success("Playlist deleted");
-    window.location.href = isViewingOther ? `/playlists?owner=${ownerId}` : "/playlists";
+    setDeletingPlaylist(true);
+    try {
+      await deletePersonalPlaylist(ownerId, playlistId);
+      toast.success("Playlist deleted");
+      window.location.href = isViewingOther ? `/playlists?owner=${ownerId}` : "/playlists";
+    } catch (error) {
+      setDeletingPlaylist(false);
+      throw error;
+    }
   }
 
   const handleSharePlaylist = async () => {
@@ -749,41 +774,68 @@ function PersonalPlaylistEditorContent() {
 
   const backHref = isViewingOther ? `/playlists?owner=${ownerId}` : "/playlists";
 
+  const [bulkActionKey, setBulkActionKey] = React.useState<string | null>(null);
+
   const handleBulkDeleteSelected = async () => {
     if (selectedIds.length === 0) return;
     if (!confirm(`Remove ${selectedIds.length} selected video${selectedIds.length > 1 ? "s" : ""} from this playlist?`)) return;
-    await bulkRemovePersonalVideos(ownerId, playlistId, selectedIds);
-    setSelectedIds([]);
-    await load();
+    setBulkActionKey("delete");
+    try {
+      await bulkRemovePersonalVideos(ownerId, playlistId, selectedIds);
+      setSelectedIds([]);
+      await load();
+    } finally {
+      setBulkActionKey(null);
+    }
   };
 
   const handleBulkMarkWatched = async () => {
     if (selectedVideos.length === 0) return;
-    const nextValue = allSelectedWatched ? false : true;
-    await bulkSetPersonalVideosWatched(ownerId, playlistId, selectedIds, nextValue);
-    setSelectedIds([]);
-    await load();
+    setBulkActionKey("watched");
+    try {
+      const nextValue = allSelectedWatched ? false : true;
+      await bulkSetPersonalVideosWatched(ownerId, playlistId, selectedIds, nextValue);
+      setSelectedIds([]);
+      await load();
+    } finally {
+      setBulkActionKey(null);
+    }
   };
 
   const handleBulkToggleFavorite = async (value: boolean) => {
     if (selectedIds.length === 0) return;
-    await bulkTogglePersonalVideoFavorite(ownerId, playlistId, selectedIds, value);
-    setSelectedIds([]);
-    await load();
+    setBulkActionKey(value ? "favorite" : "unfavorite");
+    try {
+      await bulkTogglePersonalVideoFavorite(ownerId, playlistId, selectedIds, value);
+      setSelectedIds([]);
+      await load();
+    } finally {
+      setBulkActionKey(null);
+    }
   };
 
   const handleBulkWatchLater = async (value: boolean) => {
     if (selectedIds.length === 0) return;
-    await bulkTogglePersonalVideoWatchLater(ownerId, playlistId, selectedIds, value);
-    setSelectedIds([]);
-    await load();
+    setBulkActionKey(value ? "watch-later-add" : "watch-later-remove");
+    try {
+      await bulkTogglePersonalVideoWatchLater(ownerId, playlistId, selectedIds, value);
+      setSelectedIds([]);
+      await load();
+    } finally {
+      setBulkActionKey(null);
+    }
   };
 
   const handleBulkSetPriority = async (value: "high" | "medium" | "low" | null) => {
     if (selectedIds.length === 0) return;
-    await bulkSetPersonalVideoPriority(ownerId, playlistId, selectedIds, value);
-    setSelectedIds([]);
-    await load();
+    setBulkActionKey(`priority-${value ?? "clear"}`);
+    try {
+      await bulkSetPersonalVideoPriority(ownerId, playlistId, selectedIds, value);
+      setSelectedIds([]);
+      await load();
+    } finally {
+      setBulkActionKey(null);
+    }
   };
 
   const toggleSelect = (id: string) => {
@@ -820,13 +872,13 @@ function PersonalPlaylistEditorContent() {
                     <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /> Add Video</Button>
                     <Button variant="outline" size="sm" asChild><Link href={`/playlists/import?target=${playlistId}`}><Download className="h-4 w-4" /> Import Playlist</Link></Button>
                     {missingDurationCount > 0 && (
-                      <Button variant="outline" size="sm" onClick={handleFixMissingDurations} disabled={fixingDurations}>
-                        <Clock className="h-4 w-4" /> {fixingDurations ? "Fixing durations…" : `Fix ${missingDurationCount} missing durations`}
+                      <Button variant="outline" size="sm" onClick={handleFixMissingDurations} loading={fixingDurations} loadingText="Fixing durations…">
+                        <Clock className="h-4 w-4" /> {`Fix ${missingDurationCount} missing durations`}
                       </Button>
                     )}
-                    <Button variant="outline" size="sm" onClick={handleSharePlaylist} disabled={shareBusy}>Share</Button>
+                    <Button variant="outline" size="sm" onClick={handleSharePlaylist} loading={shareBusy} loadingText="Opening…">Share</Button>
                     <Button variant="outline" size="sm" onClick={() => setDetailsOpen(true)}><Pencil className="h-4 w-4" /> Edit</Button>
-                    <Button variant="destructive" size="sm" onClick={handleDeletePlaylist}><Trash2 className="h-4 w-4" /> Delete</Button>
+                    <Button variant="destructive" size="sm" onClick={handleDeletePlaylist} loading={deletingPlaylist} loadingText="Deleting…"><Trash2 className="h-4 w-4" /> Delete</Button>
                   </div>
                 </div>
 
@@ -922,7 +974,7 @@ function PersonalPlaylistEditorContent() {
                       Edit keywords
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" onClick={handleSaveAsCustomOrder} disabled={isSorting}>
+                  <Button size="sm" variant="outline" onClick={handleSaveAsCustomOrder} loading={isSorting} loadingText="Saving order…">
                     Save this order as Custom
                   </Button>
                 </div>
@@ -933,16 +985,16 @@ function PersonalPlaylistEditorContent() {
               <div className="flex flex-wrap items-center gap-2 rounded-md border bg-background p-2">
                 <span className="text-sm font-medium">{selectedIds.length} selected</span>
                 <Button variant="outline" size="sm" onClick={() => setSelectedIds([])}>Clear</Button>
-                <Button variant="outline" size="sm" onClick={handleBulkMarkWatched}><CheckCircle2 className="h-4 w-4" /> {allSelectedWatched ? "Mark unwatched" : "Mark watched"}</Button>
-                <Button variant="outline" size="sm" onClick={() => handleBulkToggleFavorite(true)}>Favorite</Button>
-                <Button variant="outline" size="sm" onClick={() => handleBulkToggleFavorite(false)}>Unfavorite</Button>
-                <Button variant="outline" size="sm" onClick={() => handleBulkWatchLater(true)}>Add to Watch Later</Button>
-                <Button variant="outline" size="sm" onClick={() => handleBulkWatchLater(false)}>Remove from Watch Later</Button>
-                <Button variant="outline" size="sm" onClick={() => handleBulkSetPriority("high")}>High</Button>
-                <Button variant="outline" size="sm" onClick={() => handleBulkSetPriority("medium")}>Medium</Button>
-                <Button variant="outline" size="sm" onClick={() => handleBulkSetPriority("low")}>Low</Button>
-                <Button variant="outline" size="sm" onClick={() => handleBulkSetPriority(null)}>Clear priority</Button>
-                <Button variant="destructive" size="sm" onClick={handleBulkDeleteSelected}>Delete selected</Button>
+                <Button variant="outline" size="sm" onClick={handleBulkMarkWatched} disabled={!!bulkActionKey} loading={bulkActionKey === "watched"} loadingText="Updating…"><CheckCircle2 className="h-4 w-4" /> {allSelectedWatched ? "Mark unwatched" : "Mark watched"}</Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkToggleFavorite(true)} disabled={!!bulkActionKey} loading={bulkActionKey === "favorite"} loadingText="Updating…">Favorite</Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkToggleFavorite(false)} disabled={!!bulkActionKey} loading={bulkActionKey === "unfavorite"} loadingText="Updating…">Unfavorite</Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkWatchLater(true)} disabled={!!bulkActionKey} loading={bulkActionKey === "watch-later-add"} loadingText="Updating…">Add to Watch Later</Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkWatchLater(false)} disabled={!!bulkActionKey} loading={bulkActionKey === "watch-later-remove"} loadingText="Updating…">Remove from Watch Later</Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkSetPriority("high")} disabled={!!bulkActionKey} loading={bulkActionKey === "priority-high"} loadingText="Updating…">High</Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkSetPriority("medium")} disabled={!!bulkActionKey} loading={bulkActionKey === "priority-medium"} loadingText="Updating…">Medium</Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkSetPriority("low")} disabled={!!bulkActionKey} loading={bulkActionKey === "priority-low"} loadingText="Updating…">Low</Button>
+                <Button variant="outline" size="sm" onClick={() => handleBulkSetPriority(null)} disabled={!!bulkActionKey} loading={bulkActionKey === "priority-clear"} loadingText="Updating…">Clear priority</Button>
+                <Button variant="destructive" size="sm" onClick={handleBulkDeleteSelected} disabled={!!bulkActionKey} loading={bulkActionKey === "delete"} loadingText="Deleting…">Delete selected</Button>
               </div>
             )}
           </div>
@@ -997,7 +1049,7 @@ function PersonalPlaylistEditorContent() {
               {personalPlaylists.filter((p) => p.id !== playlistId && !p.isUnsorted).map((p) => <SelectItem key={p.id} value={p.id}>{p.title}</SelectItem>)}
             </SelectContent>
           </Select>
-          <DialogFooter><Button variant="outline" onClick={() => setMoveVideo(null)}>Cancel</Button><Button onClick={handleMoveToPlaylist} disabled={!moveTarget}>Move video</Button></DialogFooter>
+          <DialogFooter><Button variant="outline" onClick={() => setMoveVideo(null)}>Cancel</Button><Button onClick={handleMoveToPlaylist} disabled={!moveTarget} loading={movingVideo} loadingText="Moving…">Move video</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1108,7 +1160,7 @@ function PersonalPlaylistEditorContent() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDetailsOpen(false)}>Cancel</Button>
-            <Button onClick={handleSavePlaylistDetails}>Save</Button>
+            <Button onClick={handleSavePlaylistDetails} loading={savingDetails} loadingText="Saving…">Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1135,7 +1187,7 @@ function PersonalPlaylistEditorContent() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
-            <Button onClick={handleSaveEdit}>Save</Button>
+            <Button onClick={handleSaveEdit} loading={savingEdit} loadingText="Saving…">Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
@@ -31,12 +32,43 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /**
+   * App-wide async-action loading pattern: pass the in-flight boolean for
+   * whatever handler this button triggers (Save/Create/Delete/Generate...).
+   * While true, the button is disabled, shows a spinner, and swaps its
+   * label to `loadingText` (falling back to `children`) so a slow click is
+   * never indistinguishable from a broken one.
+   */
+  loading?: boolean;
+  /** Label shown while `loading` is true, e.g. "Saving...". Defaults to `children`. */
+  loadingText?: React.ReactNode;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, loading = false, loadingText, disabled, children, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />;
+    // `asChild` (Slot) requires exactly one child element, so the spinner/label
+    // swap only applies to plain buttons.
+    const content =
+      loading && !asChild ? (
+        <>
+          <Loader2 className="animate-spin" aria-hidden="true" />
+          {loadingText ?? children}
+        </>
+      ) : (
+        children
+      );
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        disabled={disabled || loading}
+        aria-busy={loading || undefined}
+        {...props}
+      >
+        {content}
+      </Comp>
+    );
   }
 );
 Button.displayName = "Button";

@@ -118,3 +118,24 @@ export async function fetchAiModels(
   const data = await parseOrThrow(res); 
   return (data.models || []) as AiModel[];
 }
+
+/**
+ * Refresh the model list for an *existing, saved* connection without
+ * making the user re-enter their API key: the server decrypts the stored
+ * key and calls the provider directly. If `apiKey` is passed (the user is
+ * rotating their key before saving), it's used instead of the stored one —
+ * same override behavior `updateAiConnection` already uses on save.
+ */
+export async function fetchAiModelsForConnection(
+  idToken: string,
+  id: string,
+  apiKey?: string
+): Promise<AiModel[]> {
+  const res = await fetch(`/api/ai/connections/${id}/models`, {
+    method: "POST",
+    headers: authHeaders(idToken, true),
+    body: JSON.stringify(apiKey?.trim() ? { apiKey: apiKey.trim() } : {}),
+  });
+  const data = await parseOrThrow(res);
+  return (data.models || []) as AiModel[];
+}

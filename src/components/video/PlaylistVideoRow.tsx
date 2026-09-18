@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -88,9 +89,9 @@ export function PlaylistVideoRow({
           </span>
         )}
         {!isWatched && video.watchedPercentage > 0 && (
-          <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-white">
-            {video.watchedPercentage}%
-          </span>
+          <div className="absolute inset-x-0 bottom-0">
+            <Progress value={video.watchedPercentage} className="h-1 rounded-none bg-black/30" />
+          </div>
         )}
       </Link>
 
