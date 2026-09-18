@@ -1,12 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { Star, Clock, CheckCircle2, GripVertical, ExternalLink, Play, Flag, Plus, Trash2, Share2 } from "lucide-react";
+import { Star, Clock, CheckCircle2, GripVertical, Play, Flag, Plus, Trash2, Share2 } from "lucide-react";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { detectVideoPlatform, getExternalWatchAction } from "@/lib/video-platforms";
 import { getVideoWatchHref } from "@/lib/videoRoutes";
@@ -58,16 +57,19 @@ export function VideoCard({
         </div>
       )}
       <Link href={watchHref} className="block">
-        <div className="relative aspect-video w-full overflow-hidden bg-secondary">
-          <Image
-            src={video.thumbnailUrl}
-            alt={video.title}
-            fill
-            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
-            priority={priority}
-          />
-          {dragHandleProps && (
+        <VideoThumbnail
+          src={video.thumbnailUrl}
+          alt={video.title}
+          title={video.title}
+          videoUrl={video.videoUrl}
+          className="aspect-video"
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+          priority={priority}
+          completed={completed}
+          // The card renders its own completed overlay below, so the bar is
+          // the only thing the thumbnail needs to contribute for that state.
+          progressPercent={pct}
+          overlayStart={dragHandleProps && (
             <div
               {...dragHandleProps}
               className="absolute left-2 top-2 cursor-grab rounded bg-black/50 p-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
@@ -75,6 +77,7 @@ export function VideoCard({
               <GripVertical className="h-4 w-4" />
             </div>
           )}
+        >
           <div className="absolute right-2 top-2 flex gap-1">
             {video.state?.isFavorite && (
               <span className="rounded-full bg-black/60 p-1"><Star className="h-3.5 w-3.5 fill-accent text-accent" /></span>
@@ -83,10 +86,11 @@ export function VideoCard({
               <span className="rounded-full bg-black/60 p-1"><Clock className="h-3.5 w-3.5 text-white" /></span>
             )}
           </div>
+          {/* Raised above the progress bar's lane so the two don't overlap. */}
           {video.state?.priority && (
-            <span className={cn("absolute left-2 bottom-2 h-2.5 w-2.5 rounded-full ring-2 ring-white/80", priorityDot[video.state.priority])} />
+            <span className={cn("absolute left-2 bottom-4 h-2.5 w-2.5 rounded-full ring-2 ring-white/80", priorityDot[video.state.priority])} />
           )}
-          <span className="absolute inset-x-2 bottom-2 flex justify-between items-end gap-2">
+          <span className="absolute inset-x-2 bottom-4 flex justify-between items-end gap-2">
             <Badge variant="secondary" className="bg-black/60 text-white ring-0 hover:bg-black/60">{platform}</Badge>
             {video.durationSeconds ? (
               <span className="rounded bg-black/70 px-1.5 py-0.5 font-mono text-[11px] text-white">{formatDuration(video.durationSeconds)}</span>
@@ -97,12 +101,7 @@ export function VideoCard({
               <CheckCircle2 className="h-8 w-8 text-white" />
             </span>
           )}
-          {pct > 0 && (
-            <div className="absolute inset-x-0 bottom-0">
-              <Progress value={pct} className="h-1 rounded-none bg-black/30" />
-            </div>
-          )}
-        </div>
+        </VideoThumbnail>
       </Link>
 
       <div className="flex flex-1 flex-col gap-2 p-3">

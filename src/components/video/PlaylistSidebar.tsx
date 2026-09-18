@@ -1,12 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, PlayCircle } from "lucide-react";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { cn, formatDuration } from "@/lib/utils";
 import type { PersonalVideo, Video } from "@/types";
 
@@ -67,12 +66,19 @@ export function PlaylistSidebar({ videos, currentVideoId, playlistId, ownerId, t
               )}
             >
               <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-md bg-secondary">
-                <Image src={video.thumbnailUrl} alt={video.title} fill className="object-cover" sizes="80px" />
-                {!isActive && watchedPercentage > 0 && !isComplete && (
-                  <div className="absolute inset-x-0 bottom-0">
-                    <Progress value={watchedPercentage} className="h-1 rounded-none bg-black/30" />
-                  </div>
-                )}
+                <VideoThumbnail
+                  src={video.thumbnailUrl}
+                  alt={video.title}
+                  title={video.title}
+                  videoUrl={video.videoUrl}
+                  sizes="80px"
+                  // The playlist's own progress bar is suppressed for the video
+                  // currently playing ("Now") — it would just duplicate the
+                  // player below it. Every other row matches every other
+                  // surface.
+                  progressPercent={isActive ? 0 : watchedPercentage}
+                  completed={!isActive && isComplete}
+                />
               </div>
 
               <div className="min-w-0 flex-1">

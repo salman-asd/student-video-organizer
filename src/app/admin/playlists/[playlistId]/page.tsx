@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useParams, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
 import { RequireAdmin } from "@/components/auth/RequireAuth";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -182,7 +182,7 @@ function AdminPlaylistEditorContent() {
                 <span {...dragHandleProps} className="cursor-grab p-1 text-muted-foreground"><GripVertical className="h-4 w-4" /></span>
                 <span className="w-6 shrink-0 text-center font-mono text-xs text-muted-foreground">{v.order + 1}</span>
                 <div className="relative h-12 w-20 shrink-0 overflow-hidden rounded-md bg-secondary">
-                  {v.thumbnailUrl && <Image src={v.thumbnailUrl} alt={v.title} fill className="object-cover" sizes="80px" />}
+                  <VideoThumbnail src={v.thumbnailUrl} alt={v.title} title={v.title} videoUrl={v.videoUrl} sizes="80px" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{v.title}</p>

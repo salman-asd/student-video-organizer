@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
 import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { Badge } from "@/components/ui/badge";
@@ -217,11 +218,13 @@ export default function SharedItemPage() {
                 return (
                   <Card key={video.id} className={`flex cursor-pointer flex-col gap-3 p-3 md:flex-row md:items-center ${selected ? "border-primary bg-primary/5" : ""}`} onClick={() => setSelectedVideoIndex(index)}>
                     <div className="relative h-24 w-40 shrink-0 overflow-hidden rounded-md bg-secondary">
-                      {video.thumbnailUrl ? (
-                        <Image src={video.thumbnailUrl} alt={video.title} fill className="object-cover" sizes="160px" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">No preview</div>
-                      )}
+                      <VideoThumbnail
+                        src={video.thumbnailUrl}
+                        alt={video.title}
+                        title={video.title}
+                        videoUrl={video.videoUrl}
+                        sizes="160px"
+                      />
                     </div>
 
                     <div className="min-w-0 flex-1 space-y-2">

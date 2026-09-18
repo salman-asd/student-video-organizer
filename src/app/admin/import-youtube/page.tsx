@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
 import { AppShell } from "@/components/layout/AppShell";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
 import { RequireAdmin } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Card, CardContent } from "@/components/ui/card";
@@ -206,7 +206,7 @@ function AdminImportYouTubeContent() {
                   <div key={`${v.videoUrl}-${i}`} className="flex items-center gap-2 rounded-md border border-border p-2 text-sm">
                     <span className="w-6 shrink-0 text-center font-mono text-xs text-muted-foreground">{i + 1}</span>
                     <div className="relative h-9 w-16 shrink-0 overflow-hidden rounded bg-secondary">
-                      {v.thumbnailUrl && <Image src={v.thumbnailUrl} alt={v.title} fill className="object-cover" sizes="64px" />}
+                      <VideoThumbnail src={v.thumbnailUrl} alt={v.title} title={v.title} videoUrl={v.videoUrl} sizes="64px" />
                     </div>
                     <span className="min-w-0 flex-1 truncate">{v.title}</span>
                   </div>

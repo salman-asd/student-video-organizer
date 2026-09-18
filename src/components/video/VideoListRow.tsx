@@ -1,8 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { GripVertical, CheckCircle2, X, Star, Flag } from "lucide-react";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -32,7 +32,16 @@ export function VideoListRow({
         </span>
       )}
       <Link href={watchHref} className="relative h-14 w-24 shrink-0 overflow-hidden rounded-md bg-secondary">
-        <Image src={video.thumbnailUrl} alt={video.title} fill className="object-cover" sizes="96px" />
+        <VideoThumbnail
+          src={video.thumbnailUrl}
+          alt={video.title}
+          title={video.title}
+          videoUrl={video.videoUrl}
+          completed={video.state?.status === "completed"}
+          progressPercent={video.state?.watchedPercentage}
+          sizes="96px"
+          className="group-hover:scale-105"
+        />
       </Link>
       <Link href={watchHref} className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{video.title}</p>

@@ -1,14 +1,13 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import {
   GripVertical, CheckCircle2, Circle, Star, Clock, Flag, MoreVertical, Pencil, Trash2, ChevronUp, ChevronDown,
 } from "lucide-react";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -82,17 +81,21 @@ export function PlaylistVideoRow({
       </span>
 
       <Link href={watchHref} className="relative h-11 w-[72px] shrink-0 overflow-hidden rounded-md bg-secondary sm:h-12 sm:w-20">
-        {video.thumbnailUrl && <Image src={video.thumbnailUrl} alt={video.title} fill className="object-cover" sizes="80px" />}
-        {isWatched && (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/40">
-            <CheckCircle2 className="h-4 w-4 text-white" />
-          </span>
-        )}
-        {!isWatched && video.watchedPercentage > 0 && (
-          <div className="absolute inset-x-0 bottom-0">
-            <Progress value={video.watchedPercentage} className="h-1 rounded-none bg-black/30" />
-          </div>
-        )}
+        <VideoThumbnail
+          src={video.thumbnailUrl}
+          alt={video.title}
+          title={video.title}
+          videoUrl={video.videoUrl}
+          sizes="80px"
+          completed={isWatched}
+          progressPercent={video.watchedPercentage}
+        >
+          {isWatched && (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/40">
+              <CheckCircle2 className="h-4 w-4 text-white" />
+            </span>
+          )}
+        </VideoThumbnail>
       </Link>
 
       <Link href={watchHref} className="min-w-0 flex-1">
