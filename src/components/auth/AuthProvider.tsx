@@ -4,6 +4,8 @@ import * as React from "react";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut as fbSignOut,
   sendPasswordResetEmail,
   createUserWithEmailAndPassword,
@@ -23,6 +25,7 @@ interface AuthContextValue {
   isAdmin: boolean;
   needsOnboarding: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   register: (email: string, password: string, displayName: string) => Promise<void>;
@@ -115,6 +118,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await signInWithEmailAndPassword(auth, email, password);
   }, []);
 
+  /** Google sign-in. Reuses the exact same profile-creation path as
+   *  email/password — onAuthStateChanged above fires for any auth method,
+   *  so a first-time Google user gets a proper users/{uid} doc created
+   *  automatically, using their Google displayName instead of asking them
+   *  to type one. */
+  const loginWithGoogle = React.useCallback(async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      // Someone already has a password-based account under this email and
+      // tried Google sign-in — give a specific, actionable message instead
+      // of letting a cryptic Firebase error code reach the UI unhandled.
+      if (error?.code === "auth/account-exists-with-different-credential") {
+        throw new Error(
+          "An account already exists with this email using a different sign-in method. Try signing in with your email and password instead."
+        );
+      }
+      // Popup closed/blocked — let the caller decide how to surface this;
+      // re-throw as-is so the login page can show its own friendly copy.
+      throw error;
+    }
+  }, []);
+
   const logout = React.useCallback(async () => {
     await fbSignOut(auth);
   }, []);
@@ -147,6 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isAdmin: profile?.role === "admin",
     needsOnboarding,
     login,
+    loginWithGoogle,
     logout,
     resetPassword,
     register,
