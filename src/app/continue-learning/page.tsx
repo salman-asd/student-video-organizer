@@ -142,7 +142,10 @@ function ContinueLearningContent() {
                 )}
               </div>
 
-              <div className={gridClassFor(state)}>
+              {/* Keyed by layout so switching between packed/row/wrap remounts
+                  the cards — a plain class swap cannot animate them in, and a
+                  packed card must not keep a stale entrance delay. */}
+              <div key={state} className={gridClassFor(state)}>
                 {visible.map((video, index) => (
                   <ContinueWatchingCard
                     key={video.id}
@@ -152,6 +155,7 @@ function ContinueLearningContent() {
                     // The packed card is the whole playlist's entry point, so it
                     // carries the count badge and the stacked-cards affordance.
                     packedCount={state === "packed" ? group.videos.length : undefined}
+                    enterDelayMs={Math.min(index, 7) * 45}
                   />
                 ))}
               </div>
@@ -168,49 +172,60 @@ function ContinueWatchingCard({
   priority = false,
   layout,
   packedCount,
+  enterDelayMs = 0,
 }: {
   video: VideoWithState;
   priority?: boolean;
   layout: GroupLayout;
   /** Set only on a packed card: how many videos the playlist holds. */
   packedCount?: number;
+  /** Stagger for the card's entrance, so a grid settles in left-to-right. */
+  enterDelayMs?: number;
 }) {
   const progress = Math.max(0, Math.min(100, video.state?.watchedPercentage || 0));
   const savedSeconds = Math.max(0, video.state?.currentPositionSeconds || 0);
   const resumeUrl = getVideoWatchHref(video);
   const packed = layout === "packed";
+  const deckCount = packed ? Math.min(3, Math.max(2, packedCount ?? 2)) : 0;
+
+  // "N videos" reads as redundant for a two-video playlist, where the two
+  // stacked panels already say it. Keyed off the true count, not the panels.
+  const stackLabel =
+    (packedCount ?? 0) > 2 ? `${packedCount} videos` : (packedCount ?? 0) === 2 ? "2 videos" : null;
 
   return (
     <div
       className={cn(
-        "relative",
+        "group relative animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-300 motion-reduce:animate-none",
         cardClassFor(layout),
-        // Room for the stacked panels, which translate outside the card's box.
+        // Reserve room for the stacked panels, which translate outside the
+        // card's own box — otherwise the next card on the line clips them.
         packed && "pb-2.5 pr-2.5"
       )}
+      style={{
+        animationDelay: enterDelayMs ? `${enterDelayMs}ms` : undefined,
+      }}
     >
-      {/* Stacked-cards affordance: two offset panels peeking out behind the
-          real card, so a packed playlist reads as a deck rather than a single
-          video. Rendered behind (z-order via source order) and inset so only
-          their edges show. */}
-      {packed && (
-        <>
-          {/* Stacked-deck affordance, matching the reference design: two panels
-              stepped down-and-right BEHIND the real card. Each nudges further
-              out than the last, so both edges stay visible around the card's
-              silhouette. Purely decorative. */}
+      {/* Stacked-deck affordance: offset panels stepped down-and-right BEHIND
+          the real card, each one further out than the last. They carry an
+          explicit glass tint rather than inheriting the theme's card colour,
+          which is near-black in dark mode and left the fan invisible. */}
+      {packed &&
+        Array.from({ length: deckCount }).map((_, i) => (
           <span
+            key={i}
             aria-hidden
-            className="absolute inset-0 translate-x-2.5 translate-y-2.5 rounded-md border-border bg-secondary/60"
+            className={cn(
+              "absolute inset-0 rounded-xl border-border/70 shadow-sm",
+              "bg-[hsl(160_18.75%_24.77%_/_0.6)] backdrop-blur-sm",
+              "transition-transform duration-300 ease-out",
+              "group-hover:translate-x-2.5 group-hover:translate-y-2.5"
+            )}
+            style={{ transform: `translate(${6 + i * 7}px, ${6 + i * 7}px)` }}
           />
-          <span
-            aria-hidden
-            className="absolute inset-0 translate-x-1.5 translate-y-1.5 rounded-md border-border bg-secondary"
-          />
-        </>
-      )}
+        ))}
 
-      <div className="relative overflow-hidden rounded-md border-border bg-card">
+      <div className="relative overflow-hidden rounded-xl border-border bg-card shadow-sm transition-all duration-300 group-hover:-translate-y-0.5 group-hover:shadow-lg group-hover:ring-1 group-hover:ring-primary/30">
         <Link href={resumeUrl} className="block">
           <VideoThumbnail
             src={video.thumbnailUrl}
@@ -225,10 +240,10 @@ function ContinueWatchingCard({
             {packed ? (
               // The count badge sits bottom-right, matching the stacked-folder
               // look: the thumbnail plus "N videos" is the whole card.
-              packedCount && packedCount > 1 ? (
-                <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+              stackLabel ? (
+                <span className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm ring-1 ring-white/15">
                   <Layers className="h-3 w-3" aria-hidden />
-                  {packedCount} videos
+                  {stackLabel}
                 </span>
               ) : null
             ) : (
@@ -246,10 +261,17 @@ function ContinueWatchingCard({
         {/* Deliberately terse: this page is a resume queue, so the card shows
             the title and one line of progress context, nothing more. */}
         <div className="space-y-1 p-2">
+          {packed && (
+            // Playlist name is the card's eyebrow: it identifies the deck, and
+            // frees the meta line below to carry progress only.
+            <p className="truncate text-[10px] font uppercase tracking-wide text-muted-foreground/80">
+              {video.playlistTitle || "Library"}
+            </p>
+          )}
           <h3 className="line-clamp-2 text-xs font-medium leading-snug">{video.title}</h3>
           <p className="text-[10px] text-muted-foreground">
             {packed
-              ? `${video.playlistTitle || "Library"} · ${savedSeconds > 0 ? formatDuration(savedSeconds) : "start"} saved`
+              ? `${savedSeconds > 0 ? formatDuration(savedSeconds) : "Start"} saved · ${progress}%`
               : savedSeconds > 0
                 ? `Saved ${formatDuration(savedSeconds)} · ${progress}%`
                 : `${progress}% watched`}
