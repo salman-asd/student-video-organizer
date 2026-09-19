@@ -141,11 +141,12 @@ function RoadmapContent() {
 
   // Auto-expand the only interest so a first-time / single-topic user
   // isn't stuck clicking to reveal the one thing on the page.
+  const soleInterestId = interestCards.length === 1 ? interestCards[0]?.id : null;
   React.useEffect(() => {
-    if (interestCards.length === 1) {
-      setExpandedIds(new Set([interestCards[0].id]));
+    if (soleInterestId) {
+      setExpandedIds(new Set([soleInterestId]));
     }
-  }, [interestCards.length === 1 ? interestCards[0]?.id : null]);
+  }, [soleInterestId]);
 
   function toggleExpanded(categoryId: string) {
     setExpandedIds((prev) => {

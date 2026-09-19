@@ -185,7 +185,7 @@ function AdminAiSettingsContent() {
       <div className="mx-auto max-w-4xl space-y-6">
         <div>
           <h1 className="font-display text-2xl font-semibold">Default AI Connection</h1>
-          <p className="text-sm text-muted-foreground">Manage the shared system AI connections and the default daily quota — used by any user who hasn't added their own API key. Other users never see this page or its keys.</p>
+          <p className="text-sm text-muted-foreground">Manage the shared system AI connections and the default daily quota — used by any user who hasn&apos;t added their own API key. Other users never see this page or its keys.</p>
         </div>
 
         <Card>
