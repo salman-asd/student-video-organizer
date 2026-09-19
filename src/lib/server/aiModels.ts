@@ -36,25 +36,53 @@ export async function fetchModelsForProvider(
     return { error: "API key is required.", status: 400 };
   }
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${trimmedApiKey}`,
-    "Content-Type": "application/json",
-  };
+  // Gemini's Generative Language API does not accept an API key as an
+  // Authorization: Bearer header — it requires it as a `key` query
+  // parameter. Sending it as a Bearer token gets rejected with a generic
+  // "Expected OAuth 2 access token..." error, which is what was happening
+  // here before this fix.
+  const url =
+    provider === "gemini"
+      ? `${endpoint}?key=${encodeURIComponent(trimmedApiKey)}`
+      : endpoint;
 
-  // Anthropic uses x-api-key instead of Authorization: Bearer.
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
   if (provider === "anthropic") {
-    delete headers.Authorization;
+    // Anthropic uses x-api-key instead of Authorization: Bearer.
     headers["x-api-key"] = trimmedApiKey;
     headers["anthropic-version"] = "2023-06-01";
+  } else if (provider !== "gemini") {
+    // OpenAI-compatible providers (openai, openrouter, groq) use a Bearer token.
+    headers.Authorization = `Bearer ${trimmedApiKey}`;
   }
 
-  const response = await fetch(endpoint, { method: "GET", headers, cache: "no-store" });
+  const response = await fetch(url, { method: "GET", headers, cache: "no-store" });
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
     const errorMessage =
       data?.error?.message || data?.error || `Unable to fetch models (${response.status})`;
     return { error: errorMessage, status: response.status };
+  }
+
+  // Gemini's response shape is { models: [{ name: "models/gemini-1.5-pro",
+  // displayName: "Gemini 1.5 Pro", ... }] } — completely different from the
+  // OpenAI-compatible { data: [{ id, ... }] } shape every other provider
+  // here uses, so it needs its own parsing branch rather than falling
+  // through to the generic one below (which would silently return an
+  // empty list for Gemini even once the auth fix above is in place).
+  if (provider === "gemini") {
+    const models: AiModelOption[] = Array.isArray(data?.models)
+      ? data.models
+          .map((m: any) => {
+            const id = typeof m?.name === "string" ? m.name.replace(/^models\//, "") : "";
+            return { id, name: m?.displayName || id };
+          })
+          .filter((m: AiModelOption) => m.id.trim().length > 0)
+          .sort((a: AiModelOption, b: AiModelOption) => a.name.localeCompare(b.name))
+      : [];
+    return { models };
   }
 
   const models: AiModelOption[] = Array.isArray(data?.data)

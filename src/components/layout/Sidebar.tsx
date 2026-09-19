@@ -35,7 +35,6 @@ const adminNav = [
   {
     section: "Management",
     items: [
-      { href: "/admin/ai-settings", label: "AI Settings", icon: Sparkles },
       { href: "/admin/import-json", label: "Import JSON", icon: FileJson },
       { href: "/admin/import-youtube", label: "Import YouTube Playlist", icon: Youtube },
     ],
@@ -83,6 +82,15 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
         {settingsOpen && (
           <div id="settings-navigation" className="ml-4 mt-1 flex flex-col gap-1 border-l border-border pl-2">
             <SidebarLink href="/settings/ai" label="AI Connections" icon={Sparkles} active={pathname.startsWith("/settings/ai") || pathname === "/settings"} onClick={onClose} />
+            {isAdmin && (
+              <SidebarLink
+                href="/settings/default-ai-connection"
+                label="Default AI Connection"
+                icon={Sparkles}
+                active={pathname.startsWith("/settings/default-ai-connection")}
+                onClick={onClose}
+              />
+            )}
             <SidebarLink href="/settings/interests" label="Interests" icon={Compass} active={pathname.startsWith("/settings/interests")} onClick={onClose} />
             <SidebarLink href="/settings/categories" label="Categories" icon={FolderKanban} active={pathname.startsWith("/settings/categories")} onClick={onClose} />
             {isAdmin && (
