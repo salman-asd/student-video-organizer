@@ -68,7 +68,7 @@ function AdminDashboardContent() {
 
             <p className="text-xs text-muted-foreground">
               Activity-based signup and login trends only — topic/category popularity and per-video engagement
-              require a heavier aggregation pass across every user's activity log and aren't included here yet.
+              require a heavier aggregation pass across every user&apos;s activity log and aren&apos;t included here yet.
             </p>
           </>
         )}

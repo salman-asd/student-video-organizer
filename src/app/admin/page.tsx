@@ -69,7 +69,7 @@ function AllUsersContent() {
       <div className="mx-auto max-w-4xl space-y-6">
         <div>
           <h1 className="font-display text-2xl font-semibold">All Users</h1>
-          <p className="text-sm text-muted-foreground">{users.length} registered users — find, enable/disable, or open a user's details.</p>
+          <p className="text-sm text-muted-foreground">{users.length} registered users — find, enable/disable, or open a user&apos;s details.</p>
         </div>
 
         <div className="relative max-w-sm">
