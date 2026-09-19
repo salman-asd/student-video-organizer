@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, ListVideo, Clock, Star, Flag, PlayCircle, BookOpenCheck, Share2,
-  ShieldCheck, Users, FolderKanban, Tags, FileJson, Youtube, Target, Compass, X, Settings, ChevronDown, Sparkles,
+  ShieldCheck, Users, FolderKanban, Tags, Target, Compass, X, Settings, ChevronDown, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -24,7 +24,13 @@ const studentNav = [
 ];
 
 const adminNav = [
-  { section: "Admin Dashboard", items: [{ href: "/admin", label: "All Users", icon: Users }] },
+  {
+    section: "Admin Dashboard",
+    items: [
+      { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/admin", label: "All Users", icon: Users },
+    ],
+  },
   {
     section: "Content",
     items: [
@@ -35,8 +41,7 @@ const adminNav = [
   {
     section: "Management",
     items: [
-      { href: "/admin/import-json", label: "Import JSON", icon: FileJson },
-      { href: "/admin/import-youtube", label: "Import YouTube Playlist", icon: Youtube },
+      { href: "/admin/ai-settings", label: "Default AI Connection", icon: Sparkles },
     ],
   },
 ];
@@ -82,15 +87,6 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
         {settingsOpen && (
           <div id="settings-navigation" className="ml-4 mt-1 flex flex-col gap-1 border-l border-border pl-2">
             <SidebarLink href="/settings/ai" label="AI Connections" icon={Sparkles} active={pathname.startsWith("/settings/ai") || pathname === "/settings"} onClick={onClose} />
-            {isAdmin && (
-              <SidebarLink
-                href="/settings/default-ai-connection"
-                label="Default AI Connection"
-                icon={Sparkles}
-                active={pathname.startsWith("/settings/default-ai-connection")}
-                onClick={onClose}
-              />
-            )}
             <SidebarLink href="/settings/interests" label="Interests" icon={Compass} active={pathname.startsWith("/settings/interests")} onClick={onClose} />
             <SidebarLink href="/settings/categories" label="Categories" icon={FolderKanban} active={pathname.startsWith("/settings/categories")} onClick={onClose} />
             {isAdmin && (

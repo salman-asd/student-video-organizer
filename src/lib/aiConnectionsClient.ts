@@ -2,10 +2,9 @@ import type { AiConnectionSummary, AiProvider } from "@/types";
 
 // Thin client-side wrappers around the Phase 2 API routes. Deliberately not
 // a "service layer" abstraction — just fetch + the Bearer-token header
-// pattern already used inline everywhere else in this app (see
-// src/app/admin/import-youtube/page.tsx), pulled into one place because two
-// components (the settings page and its add/edit dialog) both need all five
-// calls.
+// pattern already used inline elsewhere in this app, pulled into one place
+// because two components (the settings page and its add/edit dialog) both
+// need all five calls.
 
 export interface CreateAiConnectionInput {
   provider: AiProvider;

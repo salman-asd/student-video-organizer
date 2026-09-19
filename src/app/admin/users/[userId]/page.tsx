@@ -14,7 +14,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { VideoListRow } from "@/components/video/VideoListRow";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { getUserProfile, recomputeUserStats, setUserStatus } from "@/lib/firestore/users";
+import { getUserProfile, recomputeUserStats, setUserStatus, setUserRole } from "@/lib/firestore/users";
 import { listPlaylists, listVideos } from "@/lib/firestore/playlists";
 import { listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
 import { listLearningRoadmaps } from "@/lib/firestore/roadmaps";
@@ -130,6 +130,20 @@ function AdminUserDetailContent() {
     toast.success(next === "active" ? "Access re-enabled" : "Access disabled");
   }
 
+  async function handleToggleRole() {
+    if (!profile) return;
+    const next: "admin" | "student" = profile.role === "admin" ? "student" : "admin";
+    if (next === "admin") {
+      // Promotion is a real privilege escalation — worth a confirm step,
+      // unlike disable/enable which is reversible with no security impact.
+      const confirmed = window.confirm(`Make ${profile.displayName || profile.email} an admin? They'll gain full access to every admin tool.`);
+      if (!confirmed) return;
+    }
+    await setUserRole(profile.uid, next);
+    setProfile({ ...profile, role: next });
+    toast.success(next === "admin" ? "Promoted to admin" : "Demoted to student");
+  }
+
   async function handleRefreshStats() {
     if (!profile) return;
     const stats = await recomputeUserStats(profile.uid);
@@ -169,9 +183,19 @@ function AdminUserDetailContent() {
               <p className="text-sm text-muted-foreground">{profile.email}</p>
             </div>
             <Badge variant={profile.status === "active" ? "success" : "destructive"}>{profile.status}</Badge>
+            <Badge variant={profile.role === "admin" ? "default" : "secondary"}>{profile.role}</Badge>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={handleRefreshStats}>Refresh stats</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={user?.uid === profile.uid}
+              onClick={handleToggleRole}
+              title={user?.uid === profile.uid ? "You can't change your own role" : undefined}
+            >
+              {profile.role === "admin" ? "Demote to student" : "Promote to admin"}
+            </Button>
             <Button variant={profile.status === "active" ? "destructive" : "default"} size="sm" onClick={handleToggleStatus}>
               {profile.status === "active" ? <><ShieldOff className="h-4 w-4" /> Disable access</> : <><ShieldCheckIcon className="h-4 w-4" /> Enable access</>}
             </Button>
