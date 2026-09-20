@@ -224,6 +224,7 @@ service cloud.firestore {
           optionalEnum(request.resource.data, 'visibility', ['private', 'link', 'public']) &&
           optionalBool(request.resource.data, 'isUnsorted') &&
           optionalBool(request.resource.data, 'autoPlay') &&
+          optionalBool(request.resource.data, 'summaryStale') &&
           optionalNumberInRange(request.resource.data, 'videoCount', 0, 1000000) &&
           optionalNumberInRange(request.resource.data, 'totalDurationSeconds', 0, 1000000000) &&
           optionalString(request.resource.data, 'categoryId', 200);

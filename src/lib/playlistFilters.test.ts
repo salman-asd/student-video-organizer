@@ -21,4 +21,24 @@ describe("filterAndSortPersonalPlaylists", () => {
     assert.deepEqual(filterAndSortPersonalPlaylists(playlists, { ...base, sort: "most-videos" }).map((playlist) => playlist.id), ["2", "1", "3"]);
     assert.deepEqual(filterAndSortPersonalPlaylists(playlists, { ...base, sort: "fewest-videos" }).map((playlist) => playlist.id), ["3", "1", "2"]);
   });
+
+  it("sorts by progress; playlists without a summary count as 0%", () => {
+    const withSummary = [
+      { id: "a", title: "A", videoCount: 10, summary: { completedCount: 8, covers: [], coverVideoUrls: [], nextVideoId: null, lastWatchedAt: null } },
+      { id: "b", title: "B", videoCount: 10, summary: { completedCount: 2, covers: [], coverVideoUrls: [], nextVideoId: null, lastWatchedAt: null } },
+      { id: "c", title: "C", videoCount: 10 },
+    ] as PersonalPlaylist[];
+    assert.deepEqual(filterAndSortPersonalPlaylists(withSummary, { ...base, sort: "most-progress" }).map((p) => p.id), ["a", "b", "c"]);
+    assert.deepEqual(filterAndSortPersonalPlaylists(withSummary, { ...base, sort: "least-progress" }).map((p) => p.id), ["c", "b", "a"]);
+  });
+
+  it("sorts by recently watched, most recent first", () => {
+    const ts = (ms: number) => ({ toMillis: () => ms }) as never;
+    const list = [
+      { id: "old", title: "Old", videoCount: 1, summary: { completedCount: 0, covers: [], coverVideoUrls: [], nextVideoId: null, lastWatchedAt: ts(1000) } },
+      { id: "new", title: "New", videoCount: 1, summary: { completedCount: 0, covers: [], coverVideoUrls: [], nextVideoId: null, lastWatchedAt: ts(9000) } },
+      { id: "never", title: "Never", videoCount: 1 },
+    ] as PersonalPlaylist[];
+    assert.deepEqual(filterAndSortPersonalPlaylists(list, { ...base, sort: "recently-watched" }).map((p) => p.id), ["new", "old", "never"]);
+  });
 });

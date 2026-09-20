@@ -11,16 +11,16 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth/AuthProvider";
 
 const studentNav = [
-  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
-  { href: "/playlists", label: "Playlists", icon: ListVideo },
-  { href: "/library", label: "Library", icon: ListVideo },
+  { href: "/dashboard", label: "Home", icon: LayoutDashboard, tour: "nav-home" },
+  { href: "/playlists", label: "Playlists", icon: ListVideo, tour: "nav-playlists" },
+  { href: "/library", label: "Library", icon: ListVideo, tour: "nav-library" },
   { href: "/shared", label: "Shared", icon: Share2 },
-  { href: "/continue-learning", label: "Continue Learning", icon: PlayCircle },
+  { href: "/continue-learning", label: "Continue Learning", icon: PlayCircle, tour: "nav-continue" },
   { href: "/watch-later", label: "Watch Later", icon: Clock },
   { href: "/priority", label: "Priority", icon: Flag },
   { href: "/favorites", label: "Favorites", icon: Star },
-  { href: "/goals", label: "Goals", icon: Target },
-  { href: "/roadmap", label: "Roadmap", icon: BookOpenCheck },
+  { href: "/goals", label: "Goals", icon: Target, tour: "nav-goals" },
+  { href: "/roadmap", label: "Roadmap", icon: BookOpenCheck, tour: "nav-roadmap" },
 ];
 
 const adminNav = [
@@ -79,6 +79,7 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
           )}
           aria-expanded={settingsOpen}
           aria-controls="settings-navigation"
+          data-tour="nav-settings"
         >
           <Settings className="h-4 w-4 shrink-0" />
           <span className="flex-1 text-left">Settings</span>
@@ -138,12 +139,13 @@ export function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean; onClose
 }
 
 function SidebarLink({
-  href, label, icon: Icon, active, onClick,
-}: { href: string; label: string; icon: any; active: boolean; onClick?: () => void }) {
+  href, label, icon: Icon, active, onClick, tour,
+}: { href: string; label: string; icon: any; active: boolean; onClick?: () => void; tour?: string }) {
   return (
     <Link
       href={href}
       onClick={onClick}
+      data-tour={tour}
       className={cn(
         "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
         active ? "bg-primary text-primary-foreground" : "text-foreground/80 hover:bg-secondary"

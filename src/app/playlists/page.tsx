@@ -6,26 +6,27 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { TourChip } from "@/components/tour/TourChip";
+import { PlaylistStackCard, type PlaylistCardAction } from "@/components/playlist/PlaylistStackCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { createPersonalPlaylist, listPersonalPlaylists } from "@/lib/firestore/personalPlaylists";
+import { createPersonalPlaylist, deletePersonalPlaylist, listPersonalPlaylists, listPersonalVideos, recomputePlaylistSummary } from "@/lib/firestore/personalPlaylists";
 import type { PersonalPlaylist, PersonalPlaylistVisibility } from "@/types";
-import { Lock, Plus, ListVideo, Youtube } from "lucide-react";
+import { LayoutGrid, List as ListIcon, ListVideo, Lock, Plus, Search, SlidersHorizontal, X, Youtube } from "lucide-react";
 import { formatWatchTime } from "@/lib/utils";
 import { toast } from "sonner";
 import { QuickAddVideoDialog } from "@/components/video/QuickAddVideoDialog";
 import { TagCategoryPicker } from "@/components/shared/TagCategoryPicker";
 import { listCategories, listTags } from "@/lib/firestore/categoriesTags";
-import { filterAndSortPersonalPlaylists, type PersonalPlaylistSort, type PersonalPlaylistVisibilityFilter } from "@/lib/playlistFilters";
+import { filterAndSortPersonalPlaylists, PERSONAL_PLAYLIST_SORT_LABELS, type PersonalPlaylistSort, type PersonalPlaylistVisibilityFilter } from "@/lib/playlistFilters";
 import type { Category, Tag } from "@/types";
 import { SearchableTagMultiSelect } from "@/components/shared/TagCategoryPicker";
 
@@ -70,12 +71,41 @@ function MyPlaylistsContent() {
   const [sort, setSort] = React.useState<PersonalPlaylistSort>(() => (searchParams.get("sort") as PersonalPlaylistSort) || "recently-added");
   const [visibilityFilter, setVisibilityFilter] = React.useState<PersonalPlaylistVisibilityFilter>(() => (searchParams.get("visibility") as PersonalPlaylistVisibilityFilter) || "all");
 
+  const [view, setView] = React.useState<"grid" | "list">(() => {
+    const fromUrl = searchParams.get("view");
+    if (fromUrl === "list" || fromUrl === "grid") return fromUrl;
+    try { return window.localStorage.getItem("sl:playlists-view") === "list" ? "list" : "grid"; } catch { return "grid"; }
+  });
+
   const load = React.useCallback(async () => {
     if (!ownerId) return;
     setLoading(true);
     setPlaylists(await listPersonalPlaylists(ownerId));
     setLoading(false);
   }, [ownerId]);
+
+  // Cards show cover/progress/"Continue" from a summary stored on each playlist doc, so the
+  // list needs no per-video reads. Playlists created before summaries existed (or flagged stale
+  // by an add/remove/watched write) are repaired here — at most 5 per visit, so a big library
+  // can't burn the Firestore read quota in one page load. Opening a playlist repairs it too.
+  const backfilled = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    if (loading || !user || ownerId !== user.uid) return;
+    const targets = playlists
+      .filter((p) => (p.videoCount || 0) > 0 && (!p.summary || p.summaryStale) && !backfilled.current.has(p.id))
+      .slice(0, 5);
+    if (targets.length === 0) return;
+    targets.forEach((p) => backfilled.current.add(p.id));
+    void (async () => {
+      for (const p of targets) {
+        try {
+          const videos = await listPersonalVideos(ownerId, p.id);
+          const summary = await recomputePlaylistSummary(ownerId, p, videos);
+          setPlaylists((current) => current.map((x) => (x.id === p.id ? { ...x, summary, summaryStale: false } : x)));
+        } catch { /* leave the plain card; the detail page will repair it */ }
+      }
+    })();
+  }, [loading, playlists, user, ownerId]);
 
   React.useEffect(() => { load(); }, [load]);
   React.useEffect(() => {
@@ -103,88 +133,181 @@ function MyPlaylistsContent() {
     selectedTags.forEach((tagId) => nextParams.append("tag", tagId));
     setOrDelete("sort", sort === "recently-added" ? "" : sort);
     setOrDelete("visibility", visibilityFilter);
+    setOrDelete("view", view === "list" ? "list" : "");
     const nextUrl = nextParams.toString();
     if (nextUrl !== searchParams.toString()) router.replace(`${pathname}?${nextUrl}`, { scroll: false });
-  }, [query, selectedCategory, selectedTags, sort, visibilityFilter, pathname, router, searchParams]);
+  }, [query, selectedCategory, selectedTags, sort, visibilityFilter, view, pathname, router, searchParams]);
 
   const isViewingOther = ownerId !== user?.uid;
-  const filteredPlaylists = filterAndSortPersonalPlaylists(playlists, { query, categoryId: selectedCategory, tagIds: selectedTags, visibility: visibilityFilter, sort });
+  const ownerQuery = isViewingOther ? `?owner=${ownerId}` : "";
+  const sortedPlaylists = filterAndSortPersonalPlaylists(playlists, { query, categoryId: selectedCategory, tagIds: selectedTags, visibility: visibilityFilter, sort });
+  // "Unsorted" is the inbox for videos saved without a playlist — keep it first, whatever the sort.
+  const filteredPlaylists = [...sortedPlaylists.filter((p) => p.isUnsorted), ...sortedPlaylists.filter((p) => !p.isUnsorted)];
+  const totalVideos = playlists.reduce((sum, p) => sum + (p.videoCount || 0), 0);
+  const totalSeconds = playlists.reduce((sum, p) => sum + (p.totalDurationSeconds || 0), 0);
+  const activeFilterCount = (selectedCategory !== "all" ? 1 : 0) + (visibilityFilter !== "all" ? 1 : 0) + selectedTags.length;
+
+  function changeView(next: "grid" | "list") {
+    setView(next);
+    try { window.localStorage.setItem("sl:playlists-view", next); } catch { /* ignore */ }
+  }
+
+  async function handleCardAction(action: PlaylistCardAction, playlist: PersonalPlaylist) {
+    if (action === "share" || action === "edit") {
+      // Both flows already live on the detail page; open it with the matching dialog.
+      router.push(`/playlists/${playlist.id}?${action === "share" ? "share=1" : "edit=1"}${ownerQuery ? `&owner=${ownerId}` : ""}`);
+      return;
+    }
+    if (!confirm(`Delete "${playlist.title}" and all its videos? This can't be undone.`)) return;
+    try {
+      await deletePersonalPlaylist(ownerId, playlist.id);
+      setPlaylists((current) => current.filter((p) => p.id !== playlist.id));
+      toast.success("Playlist deleted");
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to delete this playlist.");
+    }
+  }
   const categoryCounts = categories.map((category) => ({ ...category, count: playlists.filter((playlist) => playlist.categoryId === category.id).length }));
   const tagCounts = tags.map((tag) => ({ ...tag, count: playlists.filter((playlist) => (playlist.tagIds || []).includes(tag.id)).length }));
-  const representedCategories = new Set(playlists.map((playlist) => playlist.categoryId).filter(Boolean)).size;
-  const representedTags = new Set(playlists.flatMap((playlist) => playlist.tagIds || [])).size;
-  const hasFilters = !!query.trim() || selectedCategory !== "all" || selectedTags.length > 0 || visibilityFilter !== "all";
   const clearFilters = () => { setQuery(""); setSelectedCategory("all"); setSelectedTags([]); setVisibilityFilter("all"); setSort("recently-added"); };
+  const categoryName = (id?: string | null) => (id ? categories.find((c) => c.id === id)?.name || null : null);
+  const tagNamesFor = (ids?: string[]) => (ids || []).map((id) => tags.find((t) => t.id === id)?.name).filter(Boolean) as string[];
 
   return (
     <AppShell>
-      <div className="mx-auto max-w-5xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold flex items-center gap-2">
               <Lock className="h-5 w-5 text-accent" /> My Playlists
             </h1>
             <p className="text-sm text-muted-foreground">
-              {isViewingOther
-                ? "Managing this student's personal playlists as admin."
-                : "Private to you — no other student can see these."}
+              {isViewingOther ? "Managing this student's personal playlists as admin." : "Private to you — no other student can see these."}
             </p>
+            <TourChip tourId="playlists" className="mt-2" />
+            {!loading && playlists.length > 0 && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {playlists.length} playlist{playlists.length === 1 ? "" : "s"} · {totalVideos} video{totalVideos === 1 ? "" : "s"}
+                {totalSeconds > 0 && <> · {formatWatchTime(totalSeconds)}</>}
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             {!isViewingOther && <Button variant="outline" size="sm" onClick={() => setSaveVideoOpen(true)}><Plus className="h-4 w-4" /> Save Video</Button>}
-            <Button asChild variant="outline" size="sm"><Link href="/playlists/import"><Youtube className="h-4 w-4" /> Import Playlist</Link></Button>
-            <Button size="sm" onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" /> New Playlist</Button>
+            <Button asChild variant="outline" size="sm" data-tour="pl-import"><Link href="/playlists/import"><Youtube className="h-4 w-4" /> Import Playlist</Link></Button>
+            <Button size="sm" onClick={() => setDialogOpen(true)} data-tour="pl-new"><Plus className="h-4 w-4" /> New Playlist</Button>
           </div>
         </div>
 
-        {loading ? <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-4"><Skeleton className="h-12" /><Skeleton className="h-12" /><Skeleton className="h-12" /><Skeleton className="h-12" /></div> : <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-4"><SummaryStat label="Total playlists" value={playlists.length} /><SummaryStat label="Matching" value={filteredPlaylists.length} /><SummaryStat label="Categories used" value={representedCategories} /><SummaryStat label="Tags used" value={representedTags} /></div>}
+        {/* Toolbar: search + sort stay visible; the rest lives in one Filters popover. */}
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center">
+            <div className="relative flex-1" data-tour="pl-search">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
+              <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title or description" className="pl-9" aria-label="Search playlists" />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="gap-2" data-tour="pl-filters">
+                    <SlidersHorizontal className="h-4 w-4" aria-hidden /> Filters
+                    {activeFilterCount > 0 && <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{activeFilterCount}</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 space-y-4">
+                  <div className="space-y-1.5">
+                    <Label>Category</Label>
+                    <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+                      <SelectTrigger><SelectValue placeholder="All categories" /></SelectTrigger>
+                      <SelectContent><SelectItem value="all">All categories</SelectItem>{categoryCounts.map((category) => <SelectItem key={category.id} value={category.id}>{category.name} ({category.count})</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Visibility</Label>
+                    <Select value={visibilityFilter} onValueChange={(value) => setVisibilityFilter(value as PersonalPlaylistVisibilityFilter)}>
+                      <SelectTrigger><SelectValue placeholder="All visibility" /></SelectTrigger>
+                      <SelectContent><SelectItem value="all">All visibility</SelectItem><SelectItem value="private">Private</SelectItem><SelectItem value="link">Anyone with link</SelectItem><SelectItem value="public">Public</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Tags</Label>
+                    <SearchableTagMultiSelect tags={tagCounts} selectedTagIds={selectedTags} onChange={setSelectedTags} />
+                  </div>
+                  {activeFilterCount > 0 && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
+                </PopoverContent>
+              </Popover>
+              <Select value={sort} onValueChange={(value) => setSort(value as PersonalPlaylistSort)}>
+                <SelectTrigger className="w-44" aria-label="Sort playlists"><SelectValue placeholder="Sort" /></SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(PERSONAL_PLAYLIST_SORT_LABELS) as PersonalPlaylistSort[]).map((key) => <SelectItem key={key} value={key}>{PERSONAL_PLAYLIST_SORT_LABELS[key]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <div className="flex rounded-md border border-border p-0.5" role="group" aria-label="Layout">
+                <Button variant={view === "grid" ? "secondary" : "ghost"} size="icon" className="h-8 w-8" onClick={() => changeView("grid")} aria-label="Grid view" aria-pressed={view === "grid"}><LayoutGrid className="h-4 w-4" /></Button>
+                <Button variant={view === "list" ? "secondary" : "ghost"} size="icon" className="h-8 w-8" onClick={() => changeView("list")} aria-label="List view" aria-pressed={view === "list"}><ListIcon className="h-4 w-4" /></Button>
+              </div>
+            </div>
+          </div>
 
-        <div className="space-y-3 rounded-lg border border-border bg-card p-4">
-          <div className="flex flex-col gap-2 lg:flex-row">
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title or description" className="flex-1" />
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}><SelectTrigger className="lg:w-52"><SelectValue placeholder="All categories" /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{categoryCounts.map((category) => <SelectItem key={category.id} value={category.id}>{category.name} ({category.count})</SelectItem>)}</SelectContent></Select>
-            <Select value={visibilityFilter} onValueChange={(value) => setVisibilityFilter(value as PersonalPlaylistVisibilityFilter)}><SelectTrigger className="lg:w-44"><SelectValue placeholder="All visibility" /></SelectTrigger><SelectContent><SelectItem value="all">All visibility</SelectItem><SelectItem value="private">Private</SelectItem><SelectItem value="link">Anyone with link</SelectItem><SelectItem value="public">Public</SelectItem></SelectContent></Select>
-            <Select value={sort} onValueChange={(value) => setSort(value as PersonalPlaylistSort)}><SelectTrigger className="lg:w-48"><SelectValue placeholder="Sort" /></SelectTrigger><SelectContent><SelectItem value="recently-added">Recently added</SelectItem><SelectItem value="recently-updated">Recently updated</SelectItem><SelectItem value="title-asc">Title A-Z</SelectItem><SelectItem value="title-desc">Title Z-A</SelectItem><SelectItem value="most-videos">Most videos</SelectItem><SelectItem value="fewest-videos">Fewest videos</SelectItem></SelectContent></Select>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <span className="text-sm font-medium">Tags</span>
-            <SearchableTagMultiSelect tags={tagCounts} selectedTagIds={selectedTags} onChange={setSelectedTags} />
-            {(hasFilters || sort !== "recently-added") && <Button variant="ghost" size="sm" onClick={clearFilters}>Clear filters</Button>}
-          </div>
+          {(activeFilterCount > 0 || query.trim()) && (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="text-muted-foreground">{filteredPlaylists.length} of {playlists.length} shown</span>
+              {selectedCategory !== "all" && <FilterChip label={categoryName(selectedCategory) || "Category"} onRemove={() => setSelectedCategory("all")} />}
+              {visibilityFilter !== "all" && <FilterChip label={PERSONAL_PLAYLIST_VISIBILITY_LABELS[visibilityFilter as PersonalPlaylistVisibility]} onRemove={() => setVisibilityFilter("all")} />}
+              {selectedTags.map((tagId) => <FilterChip key={tagId} label={tags.find((t) => t.id === tagId)?.name || "Tag"} onRemove={() => setSelectedTags((current) => current.filter((id) => id !== tagId))} />)}
+              <Button variant="ghost" size="sm" onClick={clearFilters}>Clear all</Button>
+            </div>
+          )}
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-28 w-full rounded-lg" />)}
-          </div>
+          view === "grid" ? (
+            <div className="grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="space-y-3">
+                  <Skeleton className="mt-3 aspect-video w-full rounded-xl" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-3">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}</div>
+          )
         ) : playlists.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border py-16 text-center text-sm text-muted-foreground">
-            No personal playlists yet. Create one to organize videos your own way.
-          </p>
+          <div className="rounded-xl border border-dashed border-border px-6 py-14 text-center">
+            <ListVideo className="mx-auto h-8 w-8 text-muted-foreground" aria-hidden />
+            <h2 className="mt-3 font-display text-lg font-semibold">Start your first playlist</h2>
+            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">Group videos into a course, save a single link, or import a whole YouTube playlist. Progress is tracked for you.</p>
+            {!isViewingOther && (
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <Button onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4" /> New playlist</Button>
+                <Button variant="outline" onClick={() => setSaveVideoOpen(true)}>Save a video</Button>
+                <Button asChild variant="outline"><Link href="/playlists/import"><Youtube className="h-4 w-4" /> Import a playlist</Link></Button>
+              </div>
+            )}
+          </div>
         ) : filteredPlaylists.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border py-16 text-center text-sm text-muted-foreground">No playlists match these filters. Try clearing one or more filters.</p>
+          <div className="rounded-xl border border-dashed border-border px-6 py-14 text-center">
+            <p className="text-sm text-muted-foreground">No playlists match these filters.</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={clearFilters}>Clear filters</Button>
+          </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredPlaylists.map((p) => (
-              <Link key={p.id} href={`/playlists/${p.id}${isViewingOther ? `?owner=${ownerId}` : ""}`}>
-                <Card className="h-full transition-shadow hover:shadow-md">
-                  <CardContent className="space-y-2 p-4">
-                    <div className="flex items-center gap-2">
-                      <ListVideo className="h-4 w-4 text-muted-foreground" />
-                      <p className="truncate font-medium">{p.isUnsorted ? `Unsorted (${p.videoCount || 0})` : p.title}</p>
-                    </div>
-                    {p.description && <p className="line-clamp-2 text-sm text-muted-foreground">{p.description}</p>}
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <Badge variant="secondary">{p.videoCount} videos</Badge>
-                      {!!p.totalDurationSeconds && <Badge variant="secondary">{formatWatchTime(p.totalDurationSeconds)}</Badge>}
-                      <Badge variant="outline">{PERSONAL_PLAYLIST_VISIBILITY_LABELS[p.visibility] || "Private"}</Badge>
-                      {p.categoryId && <Badge variant="outline">{categories.find((category) => category.id === p.categoryId)?.name || "Category"}</Badge>}
-                      {(p.tagIds || []).map((tagId) => <Badge key={tagId} variant="outline">{tags.find((tag) => tag.id === tagId)?.name || "Tag"}</Badge>)}
-                      {!p.categoryId && !(p.tagIds || []).length && <span className="text-xs text-muted-foreground">No category or tags</span>}
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+          <div className={view === "grid" ? "grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" : "space-y-3"}>
+            {filteredPlaylists.map((p, index) => (
+              <PlaylistStackCard
+                key={p.id}
+                playlist={p}
+                href={`/playlists/${p.id}${ownerQuery}`}
+                ownerQuery={ownerQuery}
+                variant={view}
+                priority={index < 4}
+                categoryName={categoryName(p.categoryId)}
+                tagNames={tagNamesFor(p.tagIds)}
+                readOnly={isViewingOther}
+                onAction={handleCardAction}
+                tourAnchor={index === 0 ? "pl-first-card" : undefined}
+              />
             ))}
           </div>
         )}
@@ -235,6 +358,13 @@ function MyPlaylistsContent() {
   );
 }
 
-function SummaryStat({ label, value }: { label: string; value: number }) {
-  return <div><p className="text-xs text-muted-foreground">{label}</p><p className="font-display text-xl font-semibold">{value}</p></div>;
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary px-2.5 py-0.5 text-xs">
+      {label}
+      <button type="button" onClick={onRemove} aria-label={`Remove filter ${label}`} className="rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <X className="h-3 w-3" />
+      </button>
+    </span>
+  );
 }

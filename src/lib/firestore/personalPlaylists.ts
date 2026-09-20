@@ -1,8 +1,9 @@
 import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs, increment,
-  orderBy, query, serverTimestamp, updateDoc, where, writeBatch,
+  orderBy, query, serverTimestamp, Timestamp, updateDoc, where, writeBatch,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { computePlaylistSummary, summaryNeedsWrite } from "@/lib/playlistSummary";
 import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibility, PersonalVideo, PriorityLevel, WatchStatus } from "@/types";
 
 /**
@@ -15,6 +16,33 @@ import type { PersonalPlaylist, PersonalPlaylistSortMode, PersonalPlaylistVisibi
 const playlistsCol = (ownerId: string) => collection(db, "users", ownerId, "personalPlaylists");
 const videosCol = (ownerId: string, playlistId: string) =>
   collection(db, "users", ownerId, "personalPlaylists", playlistId, "videos");
+
+/** Flags a playlist's summary as out of date (cover/progress/next-video). Cheap single
+ *  write; the detail page or the list page's bounded backfill recomputes it later. */
+export async function markPlaylistSummaryStale(ownerId: string, playlistId: string) {
+  await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId), { summaryStale: true }).catch(() => {});
+}
+
+/**
+ * Recomputes and stores a playlist's summary from its videos. Writes only when
+ * something actually changed (or the summary was missing/stale), and never bumps
+ * `updatedAt` — this is bookkeeping, not an edit. Returns the summary now in
+ * effect so callers can patch local state without re-reading.
+ */
+export async function recomputePlaylistSummary(
+  ownerId: string,
+  playlist: Pick<PersonalPlaylist, "id" | "sortOrder" | "summary" | "summaryStale">,
+  videos: PersonalVideo[],
+): Promise<PersonalPlaylist["summary"]> {
+  const fresh = computePlaylistSummary(videos, playlist.sortOrder ?? []);
+  if (!summaryNeedsWrite(playlist.summary, playlist.summaryStale, fresh)) return playlist.summary ?? null;
+
+  const { lastWatchedAtMs, ...rest } = fresh;
+  const lastWatchedAt = lastWatchedAtMs > 0 ? Timestamp.fromMillis(lastWatchedAtMs) : null;
+  const summary = { ...rest, lastWatchedAt, computedAt: serverTimestamp() };
+  await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlist.id), { summary, summaryStale: false });
+  return { ...rest, lastWatchedAt, computedAt: Timestamp.now() };
+}
 
 export async function listPersonalPlaylists(ownerId: string): Promise<PersonalPlaylist[]> {
   const snap = await getDocs(playlistsCol(ownerId));
@@ -244,7 +272,7 @@ export async function bulkAddVideosToPersonalPlaylist(
   await updateDoc(playlistRef, {
     sortOrder: [...currentSortOrder, ...allNewIds],
     sortMode: "custom" as PersonalPlaylistSortMode,
-    videoCount: increment(uniqueVideos.length),
+    videoCount: increment(uniqueVideos.length), summaryStale: true,
     totalDurationSeconds: increment(uniqueVideos.reduce((sum, v) => sum + (v.durationSeconds || 0), 0)),
     updatedAt: serverTimestamp(),
   });
@@ -292,7 +320,7 @@ export async function addPersonalVideo(
   await updateDoc(playlistRef, {
     sortOrder: [...currentSortOrder, ref.id],
     sortMode: "custom" as PersonalPlaylistSortMode,
-    videoCount: increment(1),
+    videoCount: increment(1), summaryStale: true,
     totalDurationSeconds: increment(data.durationSeconds || 0),
     updatedAt: serverTimestamp(),
   });
@@ -330,8 +358,8 @@ export async function movePersonalVideoToPlaylist(
   const batch = writeBatch(db);
   batch.set(targetVideoRef, { ...video, playlistId: targetPlaylistId, order: targetVideos.size, updatedAt: serverTimestamp() });
   batch.delete(sourceVideoRef);
-  batch.update(targetPlaylistRef, { sortOrder: [...targetOrder, targetVideoRef.id], videoCount: increment(1), totalDurationSeconds: increment(video.durationSeconds || 0), updatedAt: serverTimestamp() });
-  batch.update(sourcePlaylistRef, { sortOrder: sourceOrder, videoCount: increment(-1), totalDurationSeconds: increment(-(video.durationSeconds || 0)), updatedAt: serverTimestamp() });
+  batch.update(targetPlaylistRef, { sortOrder: [...targetOrder, targetVideoRef.id], videoCount: increment(1), summaryStale: true, totalDurationSeconds: increment(video.durationSeconds || 0), updatedAt: serverTimestamp() });
+  batch.update(sourcePlaylistRef, { sortOrder: sourceOrder, videoCount: increment(-1), summaryStale: true, totalDurationSeconds: increment(-(video.durationSeconds || 0)), updatedAt: serverTimestamp() });
   await batch.commit();
   return true;
 }
@@ -387,6 +415,18 @@ export async function updatePersonalVideoMeta(
   });
 }
 
+/** Replaces only the stored thumbnail URL (used to self-heal expired Facebook
+ *  thumbnails). Deliberately does NOT bump `updatedAt`: refreshing a picture
+ *  isn't a content edit and shouldn't reorder "recently updated" views. */
+export async function refreshPersonalVideoThumbnail(
+  ownerId: string, playlistId: string, videoId: string, thumbnailUrl: string,
+) {
+  await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId), {
+    thumbnailUrl,
+    thumbnailRefreshedAt: serverTimestamp(),
+  });
+}
+
 /** Batched duration backfill for videos saved before duration lookups
  *  existed (or where the source never had it, e.g. oEmbed). Keyed by
  *  videoId -> seconds. Chunked defensively, same reasoning as
@@ -434,7 +474,7 @@ export async function removePersonalVideo(ownerId: string, playlistId: string, v
   await updateDoc(playlistRef, {
     sortOrder: existingSortOrder.filter((id) => id !== videoId),
     sortMode: "custom" as PersonalPlaylistSortMode,
-    videoCount: increment(-1),
+    videoCount: increment(-1), summaryStale: true,
     totalDurationSeconds: increment(-removedSeconds),
     updatedAt: serverTimestamp(),
   });
@@ -477,7 +517,7 @@ export async function bulkRemovePersonalVideos(ownerId: string, playlistId: stri
   batch.update(playlistRef, {
     sortOrder: existingSortOrder.filter((id) => !videoIds.includes(id)),
     sortMode: "custom" as PersonalPlaylistSortMode,
-    videoCount: increment(-videoIds.length),
+    videoCount: increment(-videoIds.length), summaryStale: true,
     totalDurationSeconds: increment(-removedSeconds),
     updatedAt: serverTimestamp(),
   });
@@ -531,6 +571,9 @@ export async function savePersonalVideoProgress(
   };
   if (status === "completed") patch.completedAt = serverTimestamp();
   await updateDoc(doc(db, "users", ownerId, "personalPlaylists", playlistId, "videos", videoId), patch);
+  // Only completion changes what the Playlists page shows (progress + "Continue"), so
+  // ordinary autosaves don't pay for a second write.
+  if (status === "completed") await markPlaylistSummaryStale(ownerId, playlistId);
 }
 
 export async function setPersonalVideoWatched(ownerId: string, playlistId: string, videoId: string, watched: boolean) {
@@ -540,6 +583,7 @@ export async function setPersonalVideoWatched(ownerId: string, playlistId: strin
     completedAt: watched ? serverTimestamp() : null,
     updatedAt: serverTimestamp(),
   });
+  await markPlaylistSummaryStale(ownerId, playlistId);
 }
 
 export async function bulkSetPersonalVideosWatched(ownerId: string, playlistId: string, videoIds: string[], watched: boolean) {
@@ -548,6 +592,7 @@ export async function bulkSetPersonalVideosWatched(ownerId: string, playlistId: 
     watchedPercentage: watched ? 100 : 0,
     completedAt: watched ? serverTimestamp() : null,
   });
+  await markPlaylistSummaryStale(ownerId, playlistId);
 }
 
 export async function togglePersonalVideoFavorite(ownerId: string, playlistId: string, videoId: string, value: boolean) {

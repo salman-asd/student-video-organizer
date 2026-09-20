@@ -1,6 +1,22 @@
 import type { PersonalPlaylist } from "@/types";
+import { completionPercent, millis } from "@/lib/playlistSummary";
 
-export type PersonalPlaylistSort = "recently-added" | "recently-updated" | "title-asc" | "title-desc" | "most-videos" | "fewest-videos";
+export type PersonalPlaylistSort =
+  | "recently-added" | "recently-updated" | "recently-watched"
+  | "title-asc" | "title-desc" | "most-videos" | "fewest-videos"
+  | "most-progress" | "least-progress";
+
+export const PERSONAL_PLAYLIST_SORT_LABELS: Record<PersonalPlaylistSort, string> = {
+  "recently-added": "Recently added",
+  "recently-updated": "Recently updated",
+  "recently-watched": "Recently watched",
+  "title-asc": "Title A-Z",
+  "title-desc": "Title Z-A",
+  "most-videos": "Most videos",
+  "fewest-videos": "Fewest videos",
+  "most-progress": "Most progress",
+  "least-progress": "Least progress",
+};
 export type PersonalPlaylistVisibilityFilter = "all" | "private" | "link" | "public";
 
 export interface PersonalPlaylistFilters {
@@ -37,6 +53,15 @@ export function filterAndSortPersonalPlaylists(playlists: PersonalPlaylist[], fi
     if (filters.sort === "most-videos" || filters.sort === "fewest-videos") {
       const comparison = (left.videoCount || 0) - (right.videoCount || 0);
       return comparison === 0 ? unsortedComparison : (filters.sort === "most-videos" ? -comparison : comparison);
+    }
+    if (filters.sort === "most-progress" || filters.sort === "least-progress") {
+      // Playlists without a summary (or empty) count as 0% so they sink for "most" and rise for "least".
+      const comparison = completionPercent(left.summary, left.videoCount || 0) - completionPercent(right.summary, right.videoCount || 0);
+      return comparison === 0 ? unsortedComparison : (filters.sort === "most-progress" ? -comparison : comparison);
+    }
+    if (filters.sort === "recently-watched") {
+      const comparison = millis(right.summary?.lastWatchedAt) - millis(left.summary?.lastWatchedAt);
+      return comparison === 0 ? unsortedComparison : comparison;
     }
     const leftValue = timestampValue(filters.sort === "recently-added" ? left.createdAt : left.updatedAt);
     const rightValue = timestampValue(filters.sort === "recently-added" ? right.createdAt : right.updatedAt);

@@ -373,7 +373,7 @@ function PersonalVideoContent() {
 
         <div className={showPlaylistSidebar && sidebarOnRight ? "grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]" : "space-y-5"}>
           <div className="space-y-5">
-            <div className="mx-auto w-full max-w-5xl">
+            <div className="mx-auto w-full max-w-5xl" data-tour="w-player">
               <VideoPlayer
                 youtubeVideoId={video.youtubeVideoId}
                 videoUrl={video.videoUrl}
@@ -420,6 +420,7 @@ function PersonalVideoContent() {
               >
                 {externalWatchAction.label}
               </a>
+              <div data-tour="w-actions">
               <VideoActionsBar
                 isFavorite={video.isFavorite}
                 isWatchLater={video.isWatchLater}
@@ -434,10 +435,11 @@ function PersonalVideoContent() {
                 onSetPriority={handleSetPriority}
                 onToggleWatched={handleToggleWatched}
               />
+              </div>
             </div>
 
             <Tabs defaultValue="summary">
-              <TabsList>
+              <TabsList data-tour="w-tabs">
                 <TabsTrigger value="summary">Summary</TabsTrigger>
                 <TabsTrigger value="notes">Notes</TabsTrigger>
                 <TabsTrigger value="quiz">Quiz</TabsTrigger>
@@ -451,6 +453,7 @@ function PersonalVideoContent() {
                       size="sm"
                       className="gap-2"
                       onClick={handleGenerateSummary}
+                      data-tour="w-generate-summary"
                       loading={generatingSummary}
                       loadingText="Generating…"
                     >

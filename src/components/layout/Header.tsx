@@ -2,8 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Bell, Download, FileVideo, ListVideo, Menu, Search, LogOut, Settings, ShieldCheck, User as UserIcon } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Bell, Compass, Download, FileVideo, ListVideo, Menu, RotateCcw, Search, LogOut, Settings, ShieldCheck, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -23,11 +23,16 @@ import {
 } from "@/lib/firestore/notifications";
 import { formatUnreadBadge, recentNotifications, relativeTimeLabel } from "@/lib/notificationUtils";
 import { cn } from "@/lib/utils";
+import { useTour } from "@/components/tour/TourProvider";
+import { tourForPath } from "@/lib/tour/tours";
 import type { AppNotification, PersonalPlaylist } from "@/types";
 
 export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; onSearch?: (q: string) => void }) {
   const { user, profile, logout, isAdmin } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const { startTour, resetAll } = useTour();
+  const pageTour = tourForPath(pathname);
   const [query, setQuery] = React.useState("");
   const [saveVideoOpen, setSaveVideoOpen] = React.useState(false);
   const [addPlaylistOpen, setAddPlaylistOpen] = React.useState(false);
@@ -122,12 +127,13 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border bg-background/90 px-4 backdrop-blur">
-      <Button variant="ghost" size="icon" className="md:hidden" onClick={onMenuClick} aria-label="Open menu">
+      <Button variant="ghost" size="icon" className="md:hidden" onClick={onMenuClick} aria-label="Open menu" data-tour="header-menu">
         <Menu className="h-5 w-5" />
       </Button>
 
       <form
         className="relative flex-1 min-w-0 max-w-md"
+        data-tour="header-search"
         onSubmit={(e) => {
           e.preventDefault();
           onSearch?.(query);
@@ -154,7 +160,7 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-2.5" onClick={handleOpenSaveVideo} aria-label="Save video">
+              <Button variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-2.5" onClick={handleOpenSaveVideo} aria-label="Save video" data-tour="header-save-video">
                 <FileVideo className="h-4 w-4 shrink-0" />
                 <span className="hidden sm:inline">Save video</span>
               </Button>
@@ -163,7 +169,7 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-2.5" onClick={() => setAddPlaylistOpen(true)} aria-label="Add playlist">
+              <Button variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-2.5" onClick={() => setAddPlaylistOpen(true)} aria-label="Add playlist" data-tour="header-add-playlist">
                 <ListVideo className="h-4 w-4 shrink-0" />
                 <span className="hidden sm:inline">Add playlist</span>
               </Button>
@@ -172,7 +178,7 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-2.5" aria-label="Import playlist">
+              <Button asChild variant="ghost" size="sm" className="gap-1.5 px-2 sm:px-2.5" aria-label="Import playlist" data-tour="header-import">
                 <Link href="/playlists/import" className="inline-flex items-center gap-1.5">
                   <Download className="h-4 w-4 shrink-0" />
                   <span className="hidden sm:inline">Import playlist</span>
@@ -189,6 +195,7 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
               variant="ghost"
               size="icon"
               className="relative"
+              data-tour="header-bell"
               aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
             >
               <Bell className="h-5 w-5" />
@@ -264,7 +271,7 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
         </DropdownMenu>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="ml-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <button className="ml-1 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" data-tour="header-user" aria-label="Account menu">
               <Avatar>
                 <AvatarFallback>{initials}</AvatarFallback>
               </Avatar>
@@ -290,6 +297,19 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
             <DropdownMenuItem onClick={() => router.push("/settings")}>
               <Settings className="h-4 w-4" /> Settings
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => startTour("welcome", { force: true })}>
+              <Compass className="h-4 w-4" /> Take the welcome tour
+            </DropdownMenuItem>
+            {pageTour && pageTour.id !== "welcome" && (
+              <DropdownMenuItem onClick={() => startTour(pageTour.id, { force: true })}>
+                <Compass className="h-4 w-4" /> {pageTour.label}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => { void resetAll().then(() => toast.success("Tours reset — they'll be offered again.")); }}>
+              <RotateCcw className="h-4 w-4" /> Replay all tours
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout}>
               <LogOut className="h-4 w-4" /> Log out
             </DropdownMenuItem>

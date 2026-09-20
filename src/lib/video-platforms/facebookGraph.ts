@@ -432,6 +432,20 @@ export async function fetchFacebookVideoOEmbed(oEmbedVideoUrl: string, ogPageUrl
   }
 }
 
+/**
+ * Fetches a FRESH thumbnail URL for a Facebook video/Reel page.
+ *
+ * Facebook's thumbnail URLs are signed and expire (see signedThumbnailUrl.ts),
+ * so a thumbnail saved when the video was added stops loading days or weeks
+ * later. Re-reading og:image from the public page yields a newly signed URL.
+ * Returns null on any failure (private video, Facebook declining to serve the
+ * crawler view, network error) so callers keep whatever they already had.
+ */
+export async function fetchFreshFacebookThumbnail(pageUrl: string): Promise<string | null> {
+  const tags = await fetchFacebookOpenGraphTags(pageUrl);
+  return sanitizeFacebookThumbnailUrl(tags?.thumbnailUrl);
+}
+
 /** Extracts a Page's Video Library "video_list" id from a collection URL.
  *  Facebook doesn't document a single stable pattern the way YouTube's
  *  `?list=` param is documented, so this accepts the two shapes actually

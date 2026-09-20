@@ -2,7 +2,11 @@
 
 import * as React from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
+import { TourChip } from "@/components/tour/TourChip";
+import { PlaylistCover } from "@/components/playlist/PlaylistCover";
+import { useThumbnailHealing } from "@/hooks/useThumbnailHealing";
+import { computePlaylistSummary } from "@/lib/playlistSummary";
 import { useParams, useSearchParams } from "next/navigation";
 import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { AppShell } from "@/components/layout/AppShell";
@@ -28,6 +32,7 @@ import {
   removePersonalVideo, reorderPersonalVideos, renamePersonalPlaylist, setPersonalPlaylistSortMode,
   setPersonalPlaylistAutoPlay, setPersonalPlaylistSortKeywords, setPersonalVideoPriority, setPersonalVideoWatched,
   syncPersonalPlaylistTotalDuration, togglePersonalVideoFavorite, togglePersonalVideoWatchLater, updatePersonalVideoMeta,
+  recomputePlaylistSummary,
 } from "@/lib/firestore/personalPlaylists";
 import { PlaylistVideoRow } from "@/components/video/PlaylistVideoRow";
 import { TagCategoryPicker } from "@/components/shared/TagCategoryPicker";
@@ -148,6 +153,49 @@ function PersonalPlaylistEditorContent() {
 
   React.useEffect(() => { load(); }, [load]);
 
+  // Refresh expired/missing Facebook thumbnails (they're signed and expire). Only for the
+  // viewer's own playlists — an admin browsing a student's playlist must not write to it.
+  const healable = React.useMemo(
+    () => videos.map((v) => ({ id: v.id, playlistId: v.playlistId, videoUrl: v.videoUrl, thumbnailUrl: v.thumbnailUrl, source: "personal" as const })),
+    [videos],
+  );
+  useThumbnailHealing(user && ownerId === user.uid ? user : null, healable, (videoUrl, thumbnailUrl) => {
+    setVideos((current) => current.map((v) => (v.videoUrl === videoUrl ? { ...v, thumbnailUrl } : v)));
+  });
+
+  // Keep the playlist's stored summary (cover / progress / "Continue" target shown on the Playlists
+  // page) in step with what this page just loaded or changed. The videos are already in memory, so
+  // this costs no reads; it only writes when the rollup actually differs (see summaryNeedsWrite).
+  React.useEffect(() => {
+    if (loading || !playlist || !user || ownerId !== user.uid) return;
+    let cancelled = false;
+    void recomputePlaylistSummary(ownerId, playlist, videos)
+      .then((summary) => {
+        if (cancelled) return;
+        if (summary !== playlist.summary || playlist.summaryStale) {
+          setPlaylist((p) => (p ? { ...p, summary, summaryStale: false } : p));
+        }
+      })
+      .catch(() => { /* bookkeeping only — never block the page */ });
+    return () => { cancelled = true; };
+  }, [loading, playlist, videos, user, ownerId]);
+
+  // Deep links from the Playlists page card menu: ?edit=1 opens the details dialog, ?share=1 the share dialog.
+  const deepLinkHandled = React.useRef(false);
+  React.useEffect(() => {
+    if (loading || !playlist || deepLinkHandled.current) return;
+    const wantsEdit = searchParams.get("edit") === "1";
+    const wantsShare = searchParams.get("share") === "1";
+    if (!wantsEdit && !wantsShare) return;
+    deepLinkHandled.current = true;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("edit");
+    url.searchParams.delete("share");
+    window.history.replaceState(null, "", url.pathname + url.search);
+    if (wantsEdit) setDetailsOpen(true);
+    if (wantsShare) void handleSharePlaylist();
+  }, [loading, playlist, searchParams]);
+
   // Deep link from the Dashboard's "Add Video" button (?add=1) — opens the
   // Add Video dialog immediately instead of landing on a page with no
   // obvious next step.
@@ -236,7 +284,17 @@ function PersonalPlaylistEditorContent() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, totalDurationSeconds]);
-  const firstThumb = videos.find((v) => !!v.thumbnailUrl)?.thumbnailUrl || "";
+  // Hero cover: same stacked cover as the Playlists page, computed live from the loaded videos
+  // (so it is correct immediately, and expired Facebook thumbnails are skipped).
+  const heroPlaylist = React.useMemo(() => {
+    const { lastWatchedAtMs: _ignored, ...rollup } = computePlaylistSummary(videos, playlist?.sortOrder ?? []);
+    return {
+      title: playlist?.title || "Playlist",
+      videoCount: videos.length,
+      totalDurationSeconds: playlist?.totalDurationSeconds,
+      summary: { ...rollup, lastWatchedAt: null },
+    };
+  }, [videos, playlist?.sortOrder, playlist?.title, playlist?.totalDurationSeconds]);
   const selectedVideos = videos.filter((video) => selectedIds.includes(video.id));
   const allVisibleSelected = filteredVideos.length > 0 && filteredVideos.every((video) => selectedIds.includes(video.id));
   const allSelectedWatched = selectedVideos.length > 0 && selectedVideos.every((video) => video.status === "completed");
@@ -853,13 +911,9 @@ function PersonalPlaylistEditorContent() {
           <Skeleton className="h-28 w-full rounded-lg" />
         ) : (
           <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-            <div className="grid gap-0 md:grid-cols-[220px_1fr]">
-              <div className="relative h-44 w-full overflow-hidden bg-secondary md:h-full">
-                {firstThumb ? (
-                  <Image src={firstThumb} alt={playlist?.title || "Playlist thumbnail"} fill className="object-cover" sizes="(max-width: 768px) 100vw, 220px" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">No thumbnail</div>
-                )}
+            <div className="grid gap-0 md:grid-cols-[280px_1fr]" data-tour="pd-hero">
+              <div className="p-4 md:p-5 md:pr-0">
+                <PlaylistCover playlist={heroPlaylist} showChip={false} priority sizes="(max-width: 768px) 100vw, 260px" />
               </div>
 
               <div className="space-y-4 p-4 md:p-6">
@@ -867,9 +921,10 @@ function PersonalPlaylistEditorContent() {
                   <div className="space-y-2">
                     <Badge variant="secondary">{playlist ? PERSONAL_PLAYLIST_VISIBILITY_LABELS[playlist.visibility] : "Private"}</Badge>
                     <h1 className="font-display text-2xl font-semibold leading-tight">{playlist?.title}</h1>
+                    <TourChip tourId="playlist-detail" />
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" /> Add Video</Button>
+                    <Button variant="outline" size="sm" onClick={() => setAddOpen(true)} data-tour="pd-add-video"><Plus className="h-4 w-4" /> Add Video</Button>
                     <Button variant="outline" size="sm" asChild><Link href={`/playlists/import?target=${playlistId}`}><Download className="h-4 w-4" /> Import Playlist</Link></Button>
                     {missingDurationCount > 0 && (
                       <Button variant="outline" size="sm" onClick={handleFixMissingDurations} loading={fixingDurations} loadingText="Fixing durations…">
@@ -936,7 +991,7 @@ function PersonalPlaylistEditorContent() {
 
                 <label className="text-xs text-muted-foreground">Sort</label>
                 <Select value={sortMode} onValueChange={(value) => handleSortModeChange(value as PersonalPlaylistSortMode)}>
-                  <SelectTrigger className="h-9 w-[180px]">
+                  <SelectTrigger className="h-9 w-[180px]" data-tour="pd-sort">
                     <SelectValue placeholder="Sort" />
                   </SelectTrigger>
                   <SelectContent>
@@ -946,7 +1001,7 @@ function PersonalPlaylistEditorContent() {
                   </SelectContent>
                 </Select>
 
-                <div className="flex items-center gap-2 border-l border-border pl-2.5">
+                <div className="flex items-center gap-2 border-l border-border pl-2.5" data-tour="pd-autoplay">
                   <label htmlFor="autoplay-toggle" className="text-xs text-muted-foreground">Autoplay</label>
                   <Switch id="autoplay-toggle" checked={!!playlist?.autoPlay} onCheckedChange={handleToggleAutoPlay} aria-label="Auto-play next video" />
                 </div>
@@ -1015,6 +1070,7 @@ function PersonalPlaylistEditorContent() {
             className="space-y-1.5"
             renderItem={(v, dragHandleProps, index) => (
               <PlaylistVideoRow
+                tourAnchor={index === 0 ? "pd-first-row" : undefined}
                 video={v}
                 watchHref={`/playlists/${playlistId}/${v.id}${isViewingOther ? `?owner=${ownerId}` : ""}`}
                 selected={selectedIds.includes(v.id)}
@@ -1084,7 +1140,7 @@ function PersonalPlaylistEditorContent() {
                 <div className="flex gap-3">
                   {metadataPreview.thumbnailUrl && (
                     <div className="relative h-20 w-32 shrink-0 overflow-hidden rounded-md bg-secondary">
-                      <Image src={metadataPreview.thumbnailUrl} alt={metadataPreview.title} fill className="object-cover" sizes="128px" />
+                      <VideoThumbnail src={metadataPreview.thumbnailUrl} alt={metadataPreview.title} videoUrl={metadataPreview.canonicalUrl} sizes="128px" />
                     </div>
                   )}
                   <div className="min-w-0 flex-1 space-y-1">

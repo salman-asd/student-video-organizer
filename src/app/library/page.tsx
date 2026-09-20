@@ -15,6 +15,7 @@ import { listSharesForRecipient } from "@/lib/firestore/shares";
 import { getAllUserVideoStates } from "@/lib/firestore/userVideoState";
 import { personalVideoToVideoWithState } from "@/lib/personalVideoAdapter";
 import { applySort } from "@/lib/filterSort";
+import { useThumbnailHealing } from "@/hooks/useThumbnailHealing";
 import type { ShareRecord, SortOption, VideoPlatform, VideoWithState } from "@/types";
 import { VIDEO_PLATFORMS } from "@/types";
 
@@ -70,6 +71,12 @@ function LibraryContent() {
   }, [user]);
 
   React.useEffect(() => { load(); }, [load]);
+
+  // Facebook thumbnail URLs are signed and expire. Refresh the ones that have
+  // (or are about to) so tiles don't go blank — see lib/thumbnailHealing.ts.
+  useThumbnailHealing(user, videos, (videoUrl, thumbnailUrl) => {
+    setVideos((current) => current.map((v) => (v.videoUrl === videoUrl ? { ...v, thumbnailUrl } : v)));
+  });
 
   const categories = Array.from(new Set(videos.map((video) => video.categoryId).filter(Boolean))) as string[];
   const tags = Array.from(new Set(videos.flatMap((video) => video.tagIds || [])));

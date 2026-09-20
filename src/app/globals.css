@@ -225,3 +225,33 @@ body {
   border-color: hsl(var(--ring));
   box-shadow: 0 0 0 2px hsl(var(--ring) / 0.2);
 }
+
+
+/* ── Guided tour (driver.js) ────────────────────────────────────────────────
+   driver.js ships light-only CSS; re-skin the popover with the app's HSL tokens so it
+   follows light/dark automatically. Applied via `popoverClass: "sl-tour"`. */
+.driver-popover.sl-tour {
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  font-family: var(--font-sans);
+  max-width: min(340px, calc(100vw - 32px));
+  box-shadow: 0 10px 30px -10px hsl(var(--foreground) / 0.35);
+}
+.driver-popover.sl-tour .driver-popover-title { font-family: var(--font-display); font-size: 1.05rem; }
+.driver-popover.sl-tour .driver-popover-description { color: hsl(var(--muted-foreground)); line-height: 1.5; }
+.driver-popover.sl-tour .driver-popover-progress-text { color: hsl(var(--muted-foreground)); }
+.driver-popover.sl-tour .driver-popover-footer-btn {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border: 0;
+  border-radius: calc(var(--radius) - 4px);
+  text-shadow: none;
+}
+.driver-popover.sl-tour .driver-popover-prev-btn { background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); }
+.driver-popover.sl-tour .driver-popover-close-btn { color: hsl(var(--muted-foreground)); }
+.driver-popover.sl-tour .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: hsl(var(--popover)); }
+.driver-popover.sl-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: hsl(var(--popover)); }
+.driver-popover.sl-tour .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: hsl(var(--popover)); }
+.driver-popover.sl-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: hsl(var(--popover)); }

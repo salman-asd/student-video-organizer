@@ -144,6 +144,8 @@ export interface UserProfile {
    *  "Skip for now" would be bounced back into onboarding on every subsequent
    *  visit. */
   onboardingCompletedAt?: Timestamp | null;
+  /** Guided-tour progress, keyed by tour id (see src/lib/tour). Absent = never seen. */
+  tours?: Record<string, { v: number; status: "completed" | "skipped" | "dismissed"; step?: number; at?: Timestamp | null }>;
   /** Denormalized, cheap-to-read counters updated by client writes at
    *  meaningful events only (not on every keystroke) so the admin table
    *  can render without fanning out reads across every student. */
@@ -399,6 +401,25 @@ export type PersonalPlaylistSortMode =
   | "priority"
   | "duration";
 
+/**
+ * Denormalized rollup stored on the playlist doc so the Playlists page can show a
+ * cover, progress and a "Continue" target WITHOUT reading every video (Firestore
+ * bills per document read). Maintained by recomputePlaylistSummary() — see
+ * src/lib/playlistSummary.ts. Safe to be missing or stale: the UI degrades to a
+ * plain card and the backfill/detail page repairs it.
+ */
+export interface PlaylistSummary {
+  completedCount: number;
+  /** Up to 3 still-valid thumbnail URLs, de-duplicated, in playlist order. */
+  covers: string[];
+  /** Parallel to `covers`: the video page URL each cover came from (Facebook handling). */
+  coverVideoUrls: string[];
+  /** First unwatched video in the playlist's own order, or null when all are watched / empty. */
+  nextVideoId: string | null;
+  lastWatchedAt: Timestamp | null;
+  computedAt?: Timestamp | FieldValue | null;
+}
+
 export interface PersonalPlaylist {
   id: string;
   ownerId: string;
@@ -421,6 +442,9 @@ export interface PersonalPlaylist {
   autoPlay?: boolean;
   videoCount: number;
   totalDurationSeconds?: number;
+  summary?: PlaylistSummary | null;
+  /** Set by writes that change what the summary shows (add/remove/move/watched). */
+  summaryStale?: boolean;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;
 }

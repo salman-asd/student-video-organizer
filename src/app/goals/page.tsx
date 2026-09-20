@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { TourChip } from "@/components/tour/TourChip";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -290,12 +291,13 @@ function GoalsContent() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold">Learning Goals</h1>
+            <TourChip tourId="goals" className="mt-1" />
             <p className="text-sm text-muted-foreground">Set intentions, track deadlines, and link goals to playlists or individual videos to watch progress add up automatically.</p>
           </div>
-          <Button onClick={openAddDialog}><Plus className="h-4 w-4" /> Add Goal</Button>
+          <Button onClick={openAddDialog} data-tour="g-new"><Plus className="h-4 w-4" /> Add Goal</Button>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="g-stats">
           <StatTile icon={Target} label="Total" value={stats.total} loading={loading} />
           <StatTile icon={Flag} label="Active" value={stats.active} loading={loading} />
           <StatTile icon={CheckCircle2} label="Completed" value={stats.completed} loading={loading} />

@@ -26,8 +26,10 @@ export function PlaylistVideoRow({
   video, watchHref, selected, dragHandleProps, canDrag, isSorting,
   canMoveUp, canMoveDown, onToggleSelect, onMoveUp, onMoveDown,
   onEdit, onRemove, onToggleFavorite, onToggleWatchLater, onSetPriority, onToggleWatched,
-  onAddToPlaylist,
+  onAddToPlaylist, tourAnchor,
 }: {
+  /** `data-tour` anchor name for the guided tour (first row only). */
+  tourAnchor?: string;
   video: PersonalVideo;
   watchHref: string;
   selected: boolean;
@@ -57,6 +59,7 @@ export function PlaylistVideoRow({
 
   return (
     <div
+      data-tour={tourAnchor}
       className={cn(
         "group flex items-center gap-2 rounded-lg border border-border bg-card px-2 py-1.5 transition-colors sm:gap-3 sm:px-2.5",
         selected && "border-primary/70 bg-primary/5"

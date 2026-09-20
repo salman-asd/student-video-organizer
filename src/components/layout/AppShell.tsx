@@ -10,6 +10,13 @@ export function AppShell({
 }: { children: React.ReactNode; onSearch?: (q: string) => void }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
+  // Lets the guided tour open/close the mobile drawer (see components/tour/TourProvider).
+  React.useEffect(() => {
+    const onSidebar = (event: Event) => setMobileOpen((event as CustomEvent<"open" | "close">).detail === "open");
+    window.addEventListener("sl:sidebar", onSidebar);
+    return () => window.removeEventListener("sl:sidebar", onSidebar);
+  }, []);
+
   return (
     // h-screen + overflow-hidden turns this into a fixed "app shell": the
     // sidebar and header stay in place, and only <main> scrolls. Previously

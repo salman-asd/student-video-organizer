@@ -4,6 +4,7 @@ import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { TourChip } from "@/components/tour/TourChip";
 import { AppShell } from "@/components/layout/AppShell";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { useAuth } from "@/components/auth/AuthProvider";
@@ -329,10 +330,11 @@ function RoadmapContent() {
   return (
     <AppShell>
       <div className="mx-auto max-w-5xl space-y-6 py-8">
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="r-header">
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-accent">Roadmap</p>
           <h1 className="font-display text-3xl font-semibold">Your learning path</h1>
           <p className="text-muted-foreground">Choose a level for each interest and keep a personal, editable roadmap for it.</p>
+          <TourChip tourId="roadmap" />
         </div>
 
         {!loading && onboardingOffer && !offerDismissed && (
@@ -855,6 +857,7 @@ function RoadmapView({
                   variant="ghost"
                   className="mt-2 h-7 px-2 text-xs"
                   onClick={() => setGoalStepIndex(index)}
+                  data-tour="r-step-goal"
                 >
                   <Target className="mr-1 h-3.5 w-3.5" /> Set a goal for this step
                 </Button>

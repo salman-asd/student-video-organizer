@@ -6,7 +6,10 @@ export type LearningEventName =
   | "onboarding_skipped"
   | "video_completed"
   | "goal_completed"
-  | "goal_behind_pace";
+  | "goal_behind_pace"
+  | "tour_started"
+  | "tour_completed"
+  | "tour_skipped";
 
 export async function trackLearningEvent(
   uid: string,

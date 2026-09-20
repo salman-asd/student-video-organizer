@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import Image from "next/image";
+import { VideoThumbnail } from "@/components/video/VideoThumbnail";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -139,7 +139,7 @@ export function QuickAddVideoDialog({
             {urlStatus === "manual" && <p className="text-xs text-amber-600">Metadata unavailable; you can still save manually.</p>}
             {urlError && <p className="text-xs text-destructive">{urlError}</p>}
           </div>
-          {metadataPreview && <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm"><div className="flex gap-3">{metadataPreview.thumbnailUrl && <div className="relative h-20 w-32 shrink-0 overflow-hidden rounded-md"><Image src={metadataPreview.thumbnailUrl} alt={metadataPreview.title} fill className="object-cover" sizes="128px" /></div>}<div className="min-w-0 space-y-1"><p className="font-medium">{metadataPreview.title}</p>{metadataPreview.creator && <p className="text-xs text-muted-foreground">By {metadataPreview.creator}</p>}{metadataPreview.durationSeconds && <p className="text-xs text-muted-foreground">Duration: {formatDuration(metadataPreview.durationSeconds)}</p>}</div></div></div>}
+          {metadataPreview && <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm"><div className="flex gap-3">{metadataPreview.thumbnailUrl && <div className="relative h-20 w-32 shrink-0 overflow-hidden rounded-md"><VideoThumbnail src={metadataPreview.thumbnailUrl} alt={metadataPreview.title} videoUrl={metadataPreview.canonicalUrl} sizes="128px" /></div>}<div className="min-w-0 space-y-1"><p className="font-medium">{metadataPreview.title}</p>{metadataPreview.creator && <p className="text-xs text-muted-foreground">By {metadataPreview.creator}</p>}{metadataPreview.durationSeconds && <p className="text-xs text-muted-foreground">Duration: {formatDuration(metadataPreview.durationSeconds)}</p>}</div></div></div>}
           <div className="space-y-1.5"><Label>Title</Label><Input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} placeholder="Video title" /></div>
           <div className="space-y-1.5"><Label>Thumbnail URL</Label><Input value={newThumb} onChange={(event) => setNewThumb(event.target.value)} placeholder="https://..." /></div>
           <div className="space-y-1.5"><Label>Description (optional)</Label><textarea value={newDescription} onChange={(event) => setNewDescription(event.target.value)} className="min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm" /></div>

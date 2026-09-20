@@ -23,6 +23,7 @@ import {
 import { MotivationBanner } from "@/components/dashboard/MotivationBanner";
 import { Sparkline, BarChart, DonutChart } from "@/components/ui/charts";
 import { computeDailyPace, describeDueDate, getGoalLinkedPlaylists, getGoalLinkedVideos } from "@/lib/goalUtils";
+import { TourChip } from "@/components/tour/TourChip";
 import { getDueReviews } from "@/lib/reviewUtils";
 import { trackLearningEvent } from "@/lib/analytics";
 import { buildRecommendations } from "@/lib/recommendations";
@@ -342,12 +343,13 @@ function DashboardContent() {
               <p className="text-sm text-muted-foreground">{greeting()}, {profile?.displayName?.split(" ")[0] || "there"}</p>
               <h1 className="font-display text-3xl font-semibold">What are you learning today?</h1>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <TourChip tourId="welcome" />
               <Button size="sm" onClick={() => setSaveVideoOpen(true)}><Plus className="h-4 w-4" /> Save Video</Button>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6" data-tour="dash-stats">
             <StatTile icon={ListVideo} label="Videos" value={stats.videos} loading={loading} />
             <StatTile icon={BookOpen} label="Playlists" value={stats.playlists} loading={loading} />
             <StatTile icon={CheckCircle2} label="Watched" value={stats.watched} loading={loading} />
@@ -398,7 +400,7 @@ function DashboardContent() {
             A first-time user gets ONE clear next action instead of a wall of
             empty charts and zeros. */}
         {brandNew && (
-          <section className="rounded-2xl border-dashed border-accent/50 bg-accent/5 p-6">
+          <section className="rounded-2xl border-dashed border-accent/50 bg-accent/5 p-6" data-tour="dash-getstarted">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="space-y-1">
                 <p className="text-sm font-medium text-accent">Welcome to Study Lamp</p>

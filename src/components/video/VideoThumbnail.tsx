@@ -4,6 +4,10 @@ import * as React from "react";
 import Image from "next/image";
 import { ImageOff } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hasExpiredSignedUrl } from "@/lib/signedThumbnailUrl";
+
+// Re-exported so existing imports (and tests) of these helpers from this module keep working.
+export { signedUrlExpiry, hasExpiredSignedUrl } from "@/lib/signedThumbnailUrl";
 
 /**
  * The one video-thumbnail component.
@@ -212,32 +216,6 @@ export function skipOptimizer(src: string, videoUrl?: string | null): boolean {
     candidates.includes("instagram.com") ||
     candidates.includes("cdninstagram.com")
   );
-}
-
-/**
- * Reads Facebook's own `oe=` expiry parameter out of a signed CDN URL.
- *
- * `oe` is a unix timestamp in hex. This exists purely so the UI can explain
- *why* a thumbnail is missing ("the saved link expired") instead of showing a
- * generic failure — and so a future re-fetch job knows which URLs need
- * refreshing. Returns null when the URL has no recognizable expiry.
- *
- * Deliberately never used to modify the URL: the `oh=` signature covers the
- * full string, so any edit invalidates it.
- */
-export function signedUrlExpiry(src: string | null | undefined, now: Date = new Date()): Date | null {
-  if (!src) return null;
-  const match = src.match(/[?&]oe=([0-9A-Fa-f]+)/);
-  if (!match) return null;
-  const seconds = Number.parseInt(match[1], 16);
-  if (!Number.isFinite(seconds) || seconds <= 0) return null;
-  return new Date(seconds * 1000);
-}
-
-/** True when a signed URL's own expiry has already passed. */
-export function hasExpiredSignedUrl(src: string | null | undefined, now: Date = new Date()): boolean {
-  const expiry = signedUrlExpiry(src, now);
-  return expiry !== null && expiry.getTime() < now.getTime();
 }
 
 function clampPercent(value: number | null | undefined): number {
