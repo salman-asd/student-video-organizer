@@ -17,6 +17,9 @@ import {
 import { getAiPreferences, getAiQuota, updateAiPreferences, type AiPreferences, type AiQuotaSummary } from "@/lib/aiPreferencesClient";
 import type { AiConnectionSummary } from "@/types";
 import { Plus, Pencil, Trash2, Sparkles, GripVertical } from "lucide-react";
+import { PageInfo } from "@/components/shared/PageInfo";
+import { GuideCard, GuideList, GuideSection } from "@/components/shared/GuideCard";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 
 const PROVIDER_LABELS: Record<string, string> = { gemini: "Gemini", openai: "OpenAI", anthropic: "Anthropic", openrouter: "OpenRouter", groq: "Groq" };
@@ -171,9 +174,57 @@ function AiConnectionsContent() {
     <AppShell>
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
-          <h1 className="font-display text-2xl font-semibold">AI Connections</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="font-display text-2xl font-semibold">AI Connections</h1>
+            <PageInfo title="AI Connections" guideId="ai">
+              <p>Add your own AI provider key so summaries, quizzes and roadmaps run on <strong>your</strong> account instead of Study Lamp&apos;s small shared daily allowance.</p>
+              <p>You can add several. They are tried <strong>top to bottom</strong>; if one fails or hits its limit, the next one is used automatically.</p>
+            </PageInfo>
+          </div>
           <p className="text-sm text-muted-foreground">Manage the AI providers Study Lamp uses on your behalf.</p>
         </div>
+
+        <GuideCard id="ai" title="How AI connections work" forceOpen={!loading && connections.length === 0}>
+          <GuideSection title="Why add a connection?">
+            <GuideList items={[
+              <>AI features use it: <strong>starter summaries, quizzes, roadmaps, goal suggestions</strong> and spelling help for topics.</>,
+              <>Without one, Study Lamp uses its <strong>shared system AI</strong>, which has a small daily limit for every user (see &quot;System AI usage&quot; below) and may be turned off by an admin.</>,
+              <>With your own key you use <strong>your provider&apos;s limits</strong>, not the shared quota — and you choose the model.</>,
+              <>Some providers have a <strong>free tier</strong> (for example Google&apos;s Gemini API through Google AI Studio). Limits differ per model and can change, so check your provider&apos;s dashboard. Free tiers may use your prompts to improve their products, so avoid private material.</>,
+              <>Your key is <strong>encrypted on Study Lamp&apos;s server</strong> and never sent back to your browser; AI requests are made from the server.</>,
+            ]} />
+          </GuideSection>
+
+          <GuideSection title="How to add one">
+            <GuideList ordered items={[
+              <>Create an API key on your provider&apos;s website (Gemini, OpenAI, Anthropic, OpenRouter or Groq). For Gemini, sign in at <a className="font-medium text-accent hover:underline" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a> and choose &quot;Create API key&quot;. Copy it.</>,
+              <>Click <strong>Add Connection</strong>, pick the provider, give it a label you will recognise, and paste the key.</>,
+              <>Choose a <strong>model</strong> (use &quot;Refresh models&quot; to load the list your key can access), then save.</>,
+              <>Press <strong>Test</strong> on the new row to confirm it works.</>,
+            ]} />
+          </GuideSection>
+
+          <GuideSection title="Using more than one (and how fallback works)">
+            <GuideList items={[
+              <>Connections are used in list order: <strong>#1 first</strong>, then #2, and so on. Only connections that are <strong>enabled</strong>, not <strong>Invalid key</strong> and not in <strong>Cooldown</strong> are considered.</>,
+              <>If the one being used fails because the key was rejected, the provider&apos;s <strong>rate limit or quota</strong> was reached, or it timed out / had a network or server error, Study Lamp <strong>automatically tries the next one</strong> for that same request — you just get your result.</>,
+              <>A rejected key becomes <strong>Invalid key</strong> and is skipped until you fix it (edit the key, or Test it successfully). A rate limit puts it in <strong>Cooldown for about a minute</strong>, then it is tried again on its own.</>,
+              <>Other problems (for example a request the provider refuses) are shown to you instead of being retried elsewhere.</>,
+              <>If <strong>none</strong> of your connections can be used, Study Lamp falls back to the shared <strong>system AI</strong> (daily limit, if enabled). If that is unavailable too, you get a message asking you to add or fix a key.</>,
+              <>Good setup: your favourite/cheapest provider at #1, a second provider at #2 as a safety net.</>,
+            ]} />
+          </GuideSection>
+
+          <GuideSection title="Reorder, disable, test, edit">
+            <GuideList items={[
+              <><strong>Reorder:</strong> drag the grip handle (⋮⋮) on a row. The top row is #1; the new order is saved immediately.</>,
+              <><strong>Disable:</strong> the switch skips a connection without deleting it — handy for a backup you only want sometimes.</>,
+              <><strong>Test:</strong> runs a light check with the saved key (it does not generate anything, so it barely uses quota). Passed → <em>Active</em>; the provider rejects the key → <em>Invalid key</em>; a network hiccup changes nothing. It checks the <em>key</em>, not whether your chosen model still has quota.</>,
+              <><strong>Edit:</strong> change the label or model, or refresh the model list, without re-entering the key. Leave the key box empty to keep the stored key; paste a new one to replace it.</>,
+              <><strong>Delete</strong> removes the connection and its stored key.</>,
+            ]} />
+          </GuideSection>
+        </GuideCard>
 
         <Card>
           <CardContent className="space-y-4 p-4">
@@ -202,14 +253,15 @@ function AiConnectionsContent() {
             )}
 
             {!loading && connections.length === 0 && (
-              <p className="rounded-md border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
-                No AI connections yet. Add an AI provider key to enable starter summaries.
-              </p>
+              <div className="space-y-1 rounded-md border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
+                <p className="font-medium text-foreground">No AI connections yet</p>
+                <p>You&apos;re using Study Lamp&apos;s shared AI, which has a small daily limit. Click <strong>Add Connection</strong>, paste a key from your AI provider, then press <strong>Test</strong>.</p>
+              </div>
             )}
 
             {!loading && connections.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                Drag to reorder. Study Lamp uses the top usable connection in this list for each request.
+                Drag to reorder. Study Lamp uses the top usable connection first and falls back down the list if it fails.
               </p>
             )}
 
@@ -222,9 +274,14 @@ function AiConnectionsContent() {
                 renderItem={(connection, dragHandleProps, index) => (
                   <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span {...dragHandleProps} className="cursor-grab p-1 text-muted-foreground" aria-label="Drag to reorder">
-                        <GripVertical className="h-4 w-4" />
-                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span {...dragHandleProps} className="cursor-grab p-1 text-muted-foreground" aria-label="Drag to reorder">
+                            <GripVertical className="h-4 w-4" />
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent>Drag to change priority — #1 is tried first</TooltipContent>
+                      </Tooltip>
                       <Badge variant="outline" className="shrink-0 font-mono">#{index + 1}</Badge>
                       <div className="min-w-0 space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
@@ -245,15 +302,22 @@ function AiConnectionsContent() {
                         onCheckedChange={() => handleToggleActive(connection)}
                         aria-label={connection.isActive ? "Disable connection" : "Enable connection"}
                       />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleTest(connection)}
-                        loading={testingId === connection.id}
-                        loadingText="Testing…"
-                      >
-                        Test
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleTest(connection)}
+                              loading={testingId === connection.id}
+                              loadingText="Testing…"
+                            >
+                              Test
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs">Checks that the saved key works. Doesn&apos;t generate anything.</TooltipContent>
+                      </Tooltip>
                       <Button variant="ghost" size="icon" onClick={() => openEdit(connection)} aria-label="Edit connection">
                         <Pencil className="h-4 w-4" />
                       </Button>
@@ -273,7 +337,7 @@ function AiConnectionsContent() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="font-display text-base font-semibold">System AI usage</h2>
-                <p className="mt-1 text-sm text-muted-foreground">System-provided AI requests reset daily. Your own configured connections do not use this quota.</p>
+                <p className="mt-1 text-sm text-muted-foreground">System-provided AI requests reset daily. This shared allowance is only used when none of your own connections can be used. Your own connections never count against it.</p>
               </div>
               <Badge variant={aiQuota?.systemAiEnabled ? "success" : "destructive"}>
                 {aiQuota?.systemAiEnabled ? "Available" : "Disabled"}
@@ -316,8 +380,22 @@ function AiConnectionsContent() {
   );
 }
 
+const STATUS_HELP = {
+  active: "Working. Used in list order.",
+  invalid: "The provider rejected this key, so it's skipped. Edit the key or press Test to bring it back.",
+  cooldown: "Hit a rate limit. Skipped for about a minute, then tried again automatically.",
+} as const;
+
 function StatusBadge({ status }: { status: AiConnectionSummary["status"] }) {
-  if (status === "active") return <Badge variant="success">Active</Badge>;
-  if (status === "invalid") return <Badge variant="destructive">Invalid key</Badge>;
-  return <Badge variant="outline">Cooldown</Badge>;
+  const badge =
+    status === "active" ? <Badge variant="success">Active</Badge>
+    : status === "invalid" ? <Badge variant="destructive">Invalid key</Badge>
+    : <Badge variant="outline">Cooldown</Badge>;
+  const help = STATUS_HELP[status === "active" || status === "invalid" ? status : "cooldown"];
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild><span className="cursor-help">{badge}</span></TooltipTrigger>
+      <TooltipContent className="max-w-xs">{help}</TooltipContent>
+    </Tooltip>
+  );
 }

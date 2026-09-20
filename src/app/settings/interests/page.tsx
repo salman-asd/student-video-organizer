@@ -13,6 +13,8 @@ import { getDefaultSubcategoriesForMain, validateCustomInterestName, validateCus
 import { normalizeUserInterests } from "@/lib/userInterests";
 import type { Category, UserInterest } from "@/types";
 import { Check } from "lucide-react";
+import { PageInfo } from "@/components/shared/PageInfo";
+import { GuideCard, GuideList, GuideSection } from "@/components/shared/GuideCard";
 import { toast } from "sonner";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -171,9 +173,39 @@ function InterestsContent() {
     <AppShell>
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
-          <h1 className="font-display text-2xl font-semibold">Interests</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="font-display text-2xl font-semibold">Interests</h1>
+            <PageInfo title="Interests" guideId="interests">
+              <p>Interests are the <strong>topics you want to learn</strong>. Study Lamp uses them to build your <strong>Roadmap</strong> and to fill &quot;Recommended for you&quot; on the Dashboard.</p>
+              <p>Pick topics, tick the subtopics that matter, then press <strong>Save interests</strong> — nothing is saved until you do.</p>
+            </PageInfo>
+          </div>
           <p className="text-sm text-muted-foreground">Choose your main learning topics and refine them with the most relevant subtopics.</p>
         </div>
+
+        <GuideCard id="interests" title="How interests work" forceOpen={!loading && selectedInterestIds.length === 0}>
+          <GuideSection title="What they do">
+            <GuideList items={[
+              <><strong>Roadmap:</strong> each interest gets its own step-by-step learning path on the <Link href="/roadmap" className="font-medium text-accent hover:underline">Roadmap</Link> page. Generating one uses AI (your own <Link href="/settings/ai" className="font-medium text-accent hover:underline">AI connection</Link>, or the shared daily allowance).</>,
+              <><strong>Recommendations:</strong> the Dashboard&apos;s &quot;Recommended for you&quot; picks videos already in your library that match your roadmap&apos;s current step or your interests. It doesn&apos;t search the internet — it only reorganises what you have saved.</>,
+            ]} />
+          </GuideSection>
+          <GuideSection title="How to set them up">
+            <GuideList ordered items={[
+              <>Click topics to select them (a tick appears). The topics come from your <Link href="/settings/categories" className="font-medium text-accent hover:underline">Categories</Link>.</>,
+              <>For each selected topic, tick the <strong>suggested subtopics</strong> you care about. Missing one? Type it under <em>Other subtopic</em> and press Add — spelling is checked first (AI helps when available; it still works without).</>,
+              <>Can&apos;t find your topic? Use <strong>Add a custom topic</strong>. It is created as a new category and selected for you.</>,
+              <>Press <strong>Save interests</strong> at the bottom.</>,
+            ]} />
+          </GuideSection>
+          <GuideSection title="Good to know">
+            <GuideList items={[
+              <>A few focused interests (1–3) give sharper roadmaps and recommendations than many broad ones.</>,
+              <>If you change interests after building a roadmap, the Roadmap page <strong>offers</strong> to update it — it never regenerates on its own.</>,
+              <>You can revisit the first-time setup any time with <Link href="/onboarding" className="font-medium text-accent hover:underline">Review onboarding</Link>.</>,
+            ]} />
+          </GuideSection>
+        </GuideCard>
 
         <Card>
           <CardContent className="space-y-4 p-4">

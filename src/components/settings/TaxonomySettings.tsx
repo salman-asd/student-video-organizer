@@ -12,11 +12,15 @@ import {
 } from "@/lib/firestore/categoriesTags";
 import type { Category, Tag } from "@/types";
 import { Check, Pencil, Plus, X } from "lucide-react";
+import Link from "next/link";
+import { PageInfo } from "@/components/shared/PageInfo";
+import { GuideCard, GuideList, GuideSection } from "@/components/shared/GuideCard";
 import { toast } from "sonner";
 
 export function TaxonomySettings({ mode }: { mode: "categories" | "tags" }) {
   const { user } = useAuth();
   const [items, setItems] = React.useState<Array<Category | Tag>>([]);
+  const [loaded, setLoaded] = React.useState(false);
   const [name, setName] = React.useState("");
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [editingName, setEditingName] = React.useState("");
@@ -26,6 +30,7 @@ export function TaxonomySettings({ mode }: { mode: "categories" | "tags" }) {
   const load = React.useCallback(async () => {
     if (!user) return;
     setItems(isCategories ? await listCategories(user.uid) : await listTags());
+    setLoaded(true);
   }, [isCategories, user]);
 
   React.useEffect(() => { load(); }, [load]);
@@ -72,11 +77,62 @@ export function TaxonomySettings({ mode }: { mode: "categories" | "tags" }) {
     <AppShell>
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
-          <h1 className="font-display text-2xl font-semibold">{isCategories ? "Categories" : "Tags"}</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="font-display text-2xl font-semibold">{isCategories ? "Categories" : "Tags"}</h1>
+            <PageInfo title={isCategories ? "Categories" : "Tags"} guideId={mode}>
+              {isCategories ? (
+                <>
+                  <p>Categories are <strong>your own labels</strong> for grouping playlists and videos (for example &quot;Programming&quot; or &quot;Math&quot;). Only you see them.</p>
+                  <p>They also become the <strong>topics you can pick as Interests</strong>, which drive your roadmap and recommendations.</p>
+                </>
+              ) : (
+                <>
+                  <p>Tags are <strong>shared labels</strong> that everyone can attach to playlists and videos to make them easier to find and filter.</p>
+                  <p>Only admins manage this list. Renaming or deleting a tag affects everyone who uses it.</p>
+                </>
+              )}
+            </PageInfo>
+          </div>
           <p className="text-sm text-muted-foreground">
             Create, rename, and remove {isCategories ? "your personal categories" : "shared tags used to organize content"}.
           </p>
         </div>
+
+        {isCategories ? (
+          <GuideCard id="categories" title="How categories work" forceOpen={loaded && items.length === 0}>
+            <GuideSection title="What they are for">
+              <GuideList items={[
+                <>A <strong>category</strong> is a personal label for a playlist or video — for example Programming, Math, Language. Each playlist/video can have one.</>,
+                <>Use them to <strong>filter</strong> your Playlists and Library so you can find things quickly.</>,
+                <>Every category is also a <strong>topic you can choose on the <Link href="/settings/interests" className="font-medium text-accent hover:underline">Interests</Link> page</strong>. Interests then power your Roadmap and the &quot;Recommended for you&quot; list. A topic you add on the Interests page shows up here too.</>,
+              ]} />
+            </GuideSection>
+            <GuideSection title="How to use this page">
+              <GuideList ordered items={[
+                <>Type a name (e.g. &quot;Programming&quot;) and press <strong>Add</strong> or Enter.</>,
+                <>Use the pencil to <strong>rename</strong> (the new name shows everywhere it is used) and ✕ to <strong>delete</strong>.</>,
+                <>Then pick the category when you create or edit a playlist, or when you save a video.</>,
+              ]} />
+            </GuideSection>
+            <GuideSection title="Good to know">
+              <GuideList items={[
+                <>Deleting a category <strong>does not delete</strong> any playlists or videos — they just stop showing that category. If it was one of your interests, review your Interests afterwards.</>,
+                <>Keep names <strong>short and broad</strong> (&quot;Web development&quot; rather than &quot;React hooks part 2&quot;). Finer detail belongs in subtopics or tags.</>,
+                <>Avoid near-duplicates (&quot;Maths&quot; and &quot;Math&quot;) — they split your filters and recommendations.</>,
+              ]} />
+            </GuideSection>
+          </GuideCard>
+        ) : (
+          <GuideCard id="tags" title="How tags work" defaultOpen={false}>
+            <GuideSection title="What they are for">
+              <GuideList items={[
+                <>Tags are <strong>shared</strong> across Study Lamp (unlike categories, which are personal). They describe content in a way anyone can search and filter by — e.g. Beginner, Exam prep, Free.</>,
+                <>A playlist or video can have <strong>several</strong> tags, but only one category.</>,
+                <>This page is <strong>admin-only</strong>. Renaming or deleting a tag changes it for every user who used it, so check before deleting.</>,
+              ]} />
+            </GuideSection>
+          </GuideCard>
+        )}
 
         <Card>
           <CardContent className="space-y-4 p-4">
