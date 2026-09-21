@@ -18,7 +18,6 @@ export const TOURS: Record<TourId, TourDef> = {
     label: "Welcome tour",
     route: "/dashboard",
     matches: (p) => p === "/dashboard",
-    doneLabel: "Got it",
     steps: [
       {
         title: "Welcome to Study Lamp",
@@ -80,12 +79,14 @@ export const TOURS: Record<TourId, TourDef> = {
       {
         target: "nav-settings",
         needs: "sidebar",
-        title: "AI, interests and categories",
-        body: "Summaries, quizzes and roadmaps use AI. Add your own API key under Settings → AI Connections to use them without limits.",
+        title: "One more thing: AI and interests",
+        body: "Summaries, quizzes and roadmaps use AI, and your interests shape your roadmap. Press \"Show me\" and we'll walk through AI Connections, then Interests. (✕ stops here.)",
         side: "right",
         align: "start",
       },
     ],
+    doneLabel: "Show me →",
+    next: "settings-ai",
   },
 
   playlists: {
@@ -146,6 +147,40 @@ export const TOURS: Record<TourId, TourDef> = {
     steps: [
       { target: "g-new", title: "Add a goal", body: "Give it a deadline and link playlists or videos — progress adds up automatically.", side: "bottom", align: "end" },
       { target: "g-stats", title: "Where you stand", body: "Totals, active, completed and overdue goals.", side: "bottom", align: "start" },
+    ],
+  },
+
+  "settings-ai": {
+    id: "settings-ai",
+    version: 1,
+    label: "AI Connections tour",
+    route: "/settings/ai",
+    matches: (p) => p === "/settings/ai",
+    doneLabel: "Next: Interests →",
+    next: "settings-interests",
+    steps: [
+      { target: "page-info", title: "Hover the ⓘ any time", body: "Every settings page has one: a quick summary of what the page does. Tap it on a phone.", side: "bottom", align: "start" },
+      { target: "ai-guide", title: "Read this once", body: "It explains why to add a connection, how several connections work together, and what Test, Disabled, Invalid key and Cooldown mean.", side: "bottom", align: "start" },
+      { target: "ai-add", title: "Add your first connection", body: "Pick a provider, paste its API key, choose a model, save. Your key is encrypted on the server and never comes back to the browser.", side: "bottom", align: "end" },
+      { target: "ai-list", title: "Order = priority", body: "#1 is tried first. If it fails or hits a limit, the next one is used automatically. Drag ⋮⋮ to reorder, use the switch to disable, and Test to check a key.", side: "top", align: "start" },
+      { target: "ai-system", title: "The shared fallback", body: "If none of your connections can be used, Study Lamp uses this small shared daily allowance. Your own connections never count against it.", side: "top", align: "start" },
+    ],
+  },
+
+  "settings-interests": {
+    id: "settings-interests",
+    version: 1,
+    label: "Interests tour",
+    route: "/settings/interests",
+    matches: (p) => p === "/settings/interests",
+    doneLabel: "Finish",
+    steps: [
+      { target: "page-info", title: "What interests do", body: "They shape your Roadmap and the \"Recommended for you\" list on the Dashboard.", side: "bottom", align: "start" },
+      { target: "int-guide", title: "How it works", body: "A short guide to topics, subtopics and what happens when you change them later.", side: "bottom", align: "start" },
+      { target: "int-topics", title: "Pick your topics", body: "Click to select. These come from your Categories. One to three focused topics work best.", side: "bottom", align: "start" },
+      { target: "int-subtopics", title: "Refine with subtopics", body: "Tick the subtopics you care about, or add your own under \"Other subtopic\".", side: "top", align: "start" },
+      { target: "int-custom", title: "Missing a topic?", body: "Add a custom one — it's created as a new category and selected for you.", side: "top", align: "start" },
+      { target: "int-save", title: "Don't forget to save", body: "Nothing is stored until you press Save interests.", side: "top", align: "start" },
     ],
   },
 

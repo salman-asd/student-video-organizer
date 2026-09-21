@@ -66,6 +66,8 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
   const silentDestroyRef = React.useRef(false);
   const pendingRef = React.useRef<TourId | null>(null);
   const autoTriedRef = React.useRef<Set<string>>(new Set());
+  // `run` is defined before `startTour`; a ref lets a finished tour chain into the next one.
+  const startTourRef = React.useRef<(id: TourId, opts?: { force?: boolean }) => void>(() => {});
 
   // Merge profile-stored records with the localStorage mirror (mirror wins when newer/exists).
   React.useEffect(() => {
@@ -162,6 +164,9 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
           finished = true;
           void persist(def, "completed", lastIndex);
           opts.driver.destroy();
+          // The final button can lead into the next tour (welcome → AI settings → interests).
+          // Closing with ✕/Esc never chains: that is the user saying "stop".
+          if (def.next) startTourRef.current(def.next, { force: true });
         },
         onDestroyed: () => {
           driverRef.current = null;
@@ -202,6 +207,8 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     },
     [records, pathname, router, run],
   );
+
+  startTourRef.current = startTour;
 
   // Leaving the page ends any running tour (its anchors are gone); then start a pending one.
   // Depends on `pathname` ONLY (through refs): re-running when `run`/`user` identity changes

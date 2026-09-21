@@ -1,6 +1,6 @@
 import type { Alignment, Side } from "driver.js";
 
-export type TourId = "welcome" | "playlists" | "playlist-detail" | "watch" | "goals" | "roadmap";
+export type TourId = "welcome" | "playlists" | "playlist-detail" | "watch" | "goals" | "roadmap" | "settings-ai" | "settings-interests";
 
 export type TourStatus = "completed" | "skipped" | "dismissed";
 
@@ -38,4 +38,10 @@ export interface TourDef {
   matches: (pathname: string) => boolean;
   steps: TourStep[];
   doneLabel?: string;
+  /**
+   * Tour to continue with when the user presses the final button (NOT when they close it with
+   * ✕/Esc). Used to chain welcome → AI settings → interests. If it lives on another page, the
+   * provider navigates there first.
+   */
+  next?: TourId;
 }

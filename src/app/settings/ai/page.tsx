@@ -17,6 +17,7 @@ import {
 import { getAiPreferences, getAiQuota, updateAiPreferences, type AiPreferences, type AiQuotaSummary } from "@/lib/aiPreferencesClient";
 import type { AiConnectionSummary } from "@/types";
 import { Plus, Pencil, Trash2, Sparkles, GripVertical } from "lucide-react";
+import { TourChip } from "@/components/tour/TourChip";
 import { PageInfo } from "@/components/shared/PageInfo";
 import { GuideCard, GuideList, GuideSection } from "@/components/shared/GuideCard";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -182,9 +183,10 @@ function AiConnectionsContent() {
             </PageInfo>
           </div>
           <p className="text-sm text-muted-foreground">Manage the AI providers Study Lamp uses on your behalf.</p>
+          <TourChip tourId="settings-ai" className="mt-2" />
         </div>
 
-        <GuideCard id="ai" title="How AI connections work" forceOpen={!loading && connections.length === 0}>
+        <GuideCard id="ai" title="How AI connections work" tourAnchor="ai-guide" forceOpen={!loading && connections.length === 0}>
           <GuideSection title="Why add a connection?">
             <GuideList items={[
               <>AI features use it: <strong>starter summaries, quizzes, roadmaps, goal suggestions</strong> and spelling help for topics.</>,
@@ -240,7 +242,7 @@ function AiConnectionsContent() {
                   </p>
                 </div>
               </div>
-              <Button size="sm" className="gap-1.5" onClick={openCreate}>
+              <Button size="sm" className="gap-1.5" onClick={openCreate} data-tour="ai-add">
                 <Plus className="h-4 w-4" /> Add Connection
               </Button>
             </div>
@@ -265,7 +267,8 @@ function AiConnectionsContent() {
               </p>
             )}
 
-            {!loading && (
+            {!loading && connections.length > 0 && (
+              <div data-tour="ai-list">
               <SortableList
                 items={connections}
                 getId={(c) => c.id}
@@ -328,11 +331,12 @@ function AiConnectionsContent() {
                   </div>
                 )}
               />
+              </div>
             )}
           </CardContent>
         </Card>
 
-        <Card>
+        <Card data-tour="ai-system">
           <CardContent className="space-y-3 p-4">
             <div className="flex items-start justify-between gap-4">
               <div>

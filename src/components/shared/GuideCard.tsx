@@ -20,6 +20,7 @@ export function GuideCard({
   title,
   defaultOpen = true,
   forceOpen = false,
+  tourAnchor,
   children,
 }: {
   id: string;
@@ -27,6 +28,8 @@ export function GuideCard({
   defaultOpen?: boolean;
   /** Keep it open regardless of the saved choice (e.g. brand-new user with nothing set up). */
   forceOpen?: boolean;
+  /** `data-tour` anchor name for the guided tour. */
+  tourAnchor?: string;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = React.useState(defaultOpen);
@@ -58,7 +61,7 @@ export function GuideCard({
   };
 
   return (
-    <Card ref={rootRef} id={`guide-${id}`} className="scroll-mt-20 border-accent/30 bg-accent/5">
+    <Card ref={rootRef} id={`guide-${id}`} data-tour={tourAnchor} className="scroll-mt-20 border-accent/30 bg-accent/5">
       <CardContent className="p-0">
         <button
           type="button"

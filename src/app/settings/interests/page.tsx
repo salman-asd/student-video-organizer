@@ -13,6 +13,7 @@ import { getDefaultSubcategoriesForMain, validateCustomInterestName, validateCus
 import { normalizeUserInterests } from "@/lib/userInterests";
 import type { Category, UserInterest } from "@/types";
 import { Check } from "lucide-react";
+import { TourChip } from "@/components/tour/TourChip";
 import { PageInfo } from "@/components/shared/PageInfo";
 import { GuideCard, GuideList, GuideSection } from "@/components/shared/GuideCard";
 import { toast } from "sonner";
@@ -181,9 +182,10 @@ function InterestsContent() {
             </PageInfo>
           </div>
           <p className="text-sm text-muted-foreground">Choose your main learning topics and refine them with the most relevant subtopics.</p>
+          <TourChip tourId="settings-interests" className="mt-2" />
         </div>
 
-        <GuideCard id="interests" title="How interests work" forceOpen={!loading && selectedInterestIds.length === 0}>
+        <GuideCard id="interests" title="How interests work" tourAnchor="int-guide" forceOpen={!loading && selectedInterestIds.length === 0}>
           <GuideSection title="What they do">
             <GuideList items={[
               <><strong>Roadmap:</strong> each interest gets its own step-by-step learning path on the <Link href="/roadmap" className="font-medium text-accent hover:underline">Roadmap</Link> page. Generating one uses AI (your own <Link href="/settings/ai" className="font-medium text-accent hover:underline">AI connection</Link>, or the shared daily allowance).</>,
@@ -217,7 +219,7 @@ function InterestsContent() {
               <Link href="/onboarding" className="text-sm font-medium text-accent hover:underline">Review onboarding</Link>
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" data-tour="int-topics">
               {loading && <p className="text-sm text-muted-foreground">Loading your topics…</p>}
               {!loading && interestCategories.length === 0 && <p className="text-sm text-muted-foreground">No categories yet — create some in the category settings first.</p>}
               {interestCategories.map((category) => {
@@ -236,7 +238,7 @@ function InterestsContent() {
             </div>
 
             {selectedCategories.length > 0 && (
-              <div className="space-y-3 rounded-xl border border-dashed border-border bg-muted/30 p-3">
+              <div className="space-y-3 rounded-xl border border-dashed border-border bg-muted/30 p-3" data-tour="int-subtopics">
                 <p className="text-sm font-medium text-foreground">Suggested subtopics</p>
                 {selectedCategories.map((category) => {
                   const subtopics = getDefaultSubcategoriesForMain(category.name);
@@ -327,7 +329,7 @@ function InterestsContent() {
               </div>
             )}
 
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-2 sm:flex-row" data-tour="int-custom">
               <Input
                 value={customInterestInput}
                 onChange={(event) => setCustomInterestInput(event.target.value)}
@@ -341,7 +343,7 @@ function InterestsContent() {
               </Button>
             </div>
 
-            <Button onClick={() => void saveInterests()} disabled={!user} loading={savingInterests} loadingText="Saving…">
+            <Button onClick={() => void saveInterests()} disabled={!user} data-tour="int-save" loading={savingInterests} loadingText="Saving…">
               Save interests
             </Button>
           </CardContent>

@@ -47,7 +47,35 @@ describe("tour registry", () => {
     assert.equal(tourForPath("/playlists/import"), null);
     assert.equal(tourForPath("/playlists/abc/def")?.id, "watch");
     assert.equal(tourForPath("/goals")?.id, "goals");
-    assert.equal(tourForPath("/settings/ai"), null);
+    assert.equal(tourForPath("/settings/ai")?.id, "settings-ai");
+    assert.equal(tourForPath("/settings/interests")?.id, "settings-interests");
+    assert.equal(tourForPath("/settings/categories"), null);
+  });
+});
+
+describe("tour chaining", () => {
+  it("welcome → settings-ai → settings-interests, every `next` exists, and there are no cycles", () => {
+    assert.equal(TOURS.welcome.next, "settings-ai");
+    assert.equal(TOURS["settings-ai"].next, "settings-interests");
+    assert.equal(TOURS["settings-interests"].next, undefined);
+    for (const tour of TOUR_LIST) {
+      const seen = new Set<string>([tour.id]);
+      let cursor = tour.next;
+      while (cursor) {
+        assert.ok(TOURS[cursor], `${tour.id}: next "${cursor}" does not exist`);
+        assert.ok(!seen.has(cursor), `${tour.id}: chain loops at "${cursor}"`);
+        seen.add(cursor);
+        cursor = TOURS[cursor].next;
+      }
+    }
+  });
+
+  it("a chained tour's page is reachable by route (so the provider can navigate to it)", () => {
+    for (const tour of TOUR_LIST) if (tour.next) {
+      const target = TOURS[tour.next];
+      assert.ok(!target.route.includes("["), `${tour.next} needs a concrete route to navigate to`);
+      assert.ok(target.matches(target.route), `${tour.next}: route does not match its own matcher`);
+    }
   });
 });
 

@@ -56,6 +56,7 @@ export function PageInfo({
         <button
           type="button"
           aria-label={label}
+          data-tour="page-info"
           onPointerEnter={hoverOpen}
           onPointerLeave={hoverClose}
           onPointerDown={(event) => { lastPointer.current = event.pointerType; }}
