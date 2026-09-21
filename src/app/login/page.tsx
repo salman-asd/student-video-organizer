@@ -2,18 +2,20 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { BookOpen, Flame, GraduationCap } from "lucide-react";
+import { BookOpen, Flame, GraduationCap, MailCheck } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { friendlyAuthError } from "@/lib/authErrors";
+import { resendCooldownRemaining } from "@/lib/emailVerification";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 
-type Mode = "login" | "register" | "reset";
+type Mode = "login" | "register" | "reset" | "verify";
 
 export default function LoginPage() {
-  const { user, loading, profile, needsOnboarding, login, loginWithGoogle, register, resetPassword } = useAuth();
+  const { user, loading, profile, needsOnboarding, login, loginWithGoogle, register, resetPassword, resendVerification } = useAuth();
   const router = useRouter();
   const [mode, setMode] = React.useState<Mode>("login");
   const [email, setEmail] = React.useState("");
@@ -21,6 +23,26 @@ export default function LoginPage() {
   const [name, setName] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [googleSubmitting, setGoogleSubmitting] = React.useState(false);
+  // Email-verification screen state.
+  const [verifyNotice, setVerifyNotice] = React.useState<string | null>(null);
+  const [lastSentAt, setLastSentAt] = React.useState(0);
+  const [now, setNow] = React.useState(() => Date.now());
+  const cooldownMs = resendCooldownRemaining(lastSentAt, now);
+
+  // Tick once a second only while the resend cooldown is running.
+  React.useEffect(() => {
+    if (cooldownMs <= 0) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [cooldownMs > 0]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Landing here from the link in the verification email (?verified=1).
+  React.useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("verified") === "1") {
+      toast.success("Email verified — you can sign in now.");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   React.useEffect(() => {
     if (!loading && user) {
@@ -36,12 +58,46 @@ export default function LoginPage() {
         await login(email, password);
         toast.success("Welcome back!");
       } else if (mode === "register") {
-        await register(email, password, name || email.split("@")[0]);
-        toast.success("Account created — welcome!");
+        const { emailSent } = await register(email, password, name || email.split("@")[0]);
+        // No sign-in yet: the account is only usable after the emailed link is clicked.
+        setVerifyNotice(emailSent ? null : "We created your account but couldn't send the email yet. Press Resend below.");
+        if (emailSent) setLastSentAt(Date.now());
+        setNow(Date.now());
+        setMode("verify");
+      } else if (mode === "verify") {
+        // "I've verified — sign in": try a normal sign-in with what the user already typed.
+        await login(email, password);
+        toast.success("Welcome!");
       } else {
         await resetPassword(email);
         toast.success("Password reset email sent");
         setMode("login");
+      }
+    } catch (err: any) {
+      if (err?.code === "auth/email-not-verified") {
+        // Correct password, but the email link hasn't been clicked yet.
+        setVerifyNotice(mode === "verify" ? "Not verified yet — open the link in your email first." : "Please verify your email before signing in. We sent you a link when you registered.");
+        setMode("verify");
+      } else {
+        toast.error(friendlyAuthError(err?.code));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function onResend() {
+    if (cooldownMs > 0 || !email || !password) return;
+    setSubmitting(true);
+    try {
+      const result = await resendVerification(email, password);
+      if (result === "already-verified") {
+        toast.success("Your email is already verified — signing you in.");
+      } else {
+        setLastSentAt(Date.now());
+        setNow(Date.now());
+        setVerifyNotice(null);
+        toast.success("Verification email sent. Check your inbox (and spam).");
       }
     } catch (err: any) {
       toast.error(friendlyAuthError(err?.code));
@@ -104,13 +160,16 @@ export default function LoginPage() {
               {mode === "login" && "Welcome back"}
               {mode === "register" && "Create your account"}
               {mode === "reset" && "Reset your password"}
+              {mode === "verify" && "Check your email"}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {mode === "login" && "Sign in to continue learning."}
               {mode === "register" && "Set up your personal learning library."}
               {mode === "reset" && "We&apos;ll email you a reset link."}
+              {mode === "verify" && "One more step before you can sign in."}
             </p>
 
+            {mode !== "verify" && (
             <Button
               type="button"
               variant="outline"
@@ -121,8 +180,22 @@ export default function LoginPage() {
               <GoogleIcon className="h-4 w-4" />
               {googleSubmitting ? "Connecting…" : "Continue with Google"}
             </Button>
+            )}
 
-            {mode !== "reset" && (
+            {mode === "verify" && (
+              <div className="mt-6 space-y-4">
+                <div className="flex items-start gap-3 rounded-lg border border-border bg-secondary/50 p-3 text-sm">
+                  <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-accent" aria-hidden />
+                  <div className="space-y-1">
+                    <p>We sent a verification link to <strong className="break-all">{email || "your email"}</strong>.</p>
+                    <p className="text-muted-foreground">Open it, then come back here and sign in. Can&apos;t find it? Check your spam folder.</p>
+                  </div>
+                </div>
+                {verifyNotice && <p role="status" className="text-sm text-destructive">{verifyNotice}</p>}
+              </div>
+            )}
+
+            {mode !== "reset" && mode !== "verify" && (
               <div className="my-4 flex items-center gap-3 text-xs text-muted-foreground">
                 <div className="h-px flex-1 bg-border" />
                 or
@@ -143,13 +216,18 @@ export default function LoginPage() {
               </div>
               {mode !== "reset" && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="password">Password</Label>
+                  <Label htmlFor="password">{mode === "verify" ? "Your password (to sign in or resend)" : "Password"}</Label>
                   <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={6} />
                 </div>
               )}
               <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? "Please wait…" : mode === "login" ? "Sign in" : mode === "register" ? "Create account" : "Send reset link"}
+                {submitting ? "Please wait…" : mode === "login" ? "Sign in" : mode === "register" ? "Create account" : mode === "verify" ? "I've verified — sign in" : "Send reset link"}
               </Button>
+              {mode === "verify" && (
+                <Button type="button" variant="outline" className="w-full" disabled={submitting || cooldownMs > 0 || !password} onClick={onResend}>
+                  {cooldownMs > 0 ? `Resend email in ${Math.ceil(cooldownMs / 1000)}s` : "Resend verification email"}
+                </Button>
+              )}
             </form>
 
             <div className="mt-4 flex flex-col gap-1 text-center text-sm text-muted-foreground">
@@ -160,7 +238,9 @@ export default function LoginPage() {
                 </>
               )}
               {mode !== "login" && (
-                <button className="hover:text-foreground" onClick={() => setMode("login")}>Back to sign in</button>
+                <button className="hover:text-foreground" onClick={() => { setVerifyNotice(null); setMode("login"); }}>
+                  {mode === "verify" ? "Use a different email" : "Back to sign in"}
+                </button>
               )}
             </div>
           </CardContent>
@@ -191,21 +271,4 @@ function GoogleIcon({ className }: { className?: string }) {
       />
     </svg>
   );
-}
-
-function friendlyAuthError(code?: string): string {
-  switch (code) {
-    case "auth/invalid-credential":
-    case "auth/wrong-password":
-    case "auth/user-not-found":
-      return "That email and password don't match.";
-    case "auth/email-already-in-use":
-      return "An account already exists for that email.";
-    case "auth/weak-password":
-      return "Password should be at least 6 characters.";
-    case "auth/invalid-email":
-      return "Enter a valid email address.";
-    default:
-      return "Something went wrong. Please try again.";
-  }
 }

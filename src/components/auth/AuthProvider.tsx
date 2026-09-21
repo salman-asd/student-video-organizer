@@ -10,12 +10,17 @@ import {
   sendPasswordResetEmail,
   createUserWithEmailAndPassword,
   updateProfile,
+  sendEmailVerification,
+  reauthenticateWithCredential,
+  updatePassword,
+  EmailAuthProvider,
   type User,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { ensureUserHasDefaultCategories } from "@/lib/firestore/categoriesTags";
 import { hasCompletedOnboarding, normalizeUserInterests } from "@/lib/userInterests";
+import { shouldBlockUnverified } from "@/lib/emailVerification";
 import type { UserProfile } from "@/types";
 
 interface AuthContextValue {
@@ -28,12 +33,49 @@ interface AuthContextValue {
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  register: (email: string, password: string, displayName: string) => Promise<void>;
+  /** Creates the account and emails a verification link. The user is NOT left signed in. */
+  register: (email: string, password: string, displayName: string) => Promise<{ emailSent: boolean }>;
+  /** Re-sends the verification email (signs in briefly with the credentials, then signs out). */
+  resendVerification: (email: string, password: string) => Promise<"sent" | "already-verified">;
+  /** True when the signed-in user's email is verified (always true for Google). */
+  emailVerified: boolean;
+  /** True when the account has an email+password sign-in (so "Change password" applies). */
+  hasPasswordProvider: boolean;
+  /** Sends a verification email to the signed-in (legacy, unverified) user. */
+  sendVerificationToCurrentUser: () => Promise<void>;
+  /** Re-reads the user from Firebase so a just-verified email is picked up without signing out. */
+  refreshEmailVerified: () => Promise<boolean>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   /** Records that the user finished or explicitly skipped onboarding. */
   completeOnboarding: () => Promise<void>;
 }
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
+
+/** Thrown by login() when a NEW account hasn't confirmed its email yet. */
+export class EmailNotVerifiedError extends Error {
+  code = "auth/email-not-verified" as const;
+  constructor() {
+    super("Please verify your email before signing in.");
+  }
+}
+
+/**
+ * Sends the verification email. The link's "continue" target is the login page; if the deployed
+ * domain hasn't been added to Firebase → Authentication → Settings → Authorized domains, Firebase
+ * rejects the continue URL, so fall back to a plain email rather than failing the whole flow.
+ */
+async function sendVerificationEmail(user: User): Promise<void> {
+  try {
+    await sendEmailVerification(user, { url: `${window.location.origin}/login?verified=1` });
+  } catch (error: any) {
+    if (error?.code === "auth/unauthorized-continue-uri" || error?.code === "auth/invalid-continue-uri") {
+      await sendEmailVerification(user);
+      return;
+    }
+    throw error;
+  }
+}
 
 const SEED_ADMIN_EMAILS = (process.env.NEXT_PUBLIC_SEED_ADMIN_EMAILS || "")
   .split(",")
@@ -44,6 +86,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = React.useState<User | null>(null);
   const [profile, setProfile] = React.useState<UserProfile | null>(null);
   const [loading, setLoading] = React.useState(true);
+  // login()/register()/resend briefly hold an unverified session. While one of those runs, the auth
+  // listener must not sign the user out underneath it.
+  const flowRef = React.useRef(0);
+  // Bumped when user.reload() changes emailVerified in place (the User object is mutated, not replaced).
+  const [, setVerifiedTick] = React.useState(0);
   // Gated on the explicit "finished or skipped" flag, not on "has interests" —
   // picking interests is optional, so a user who pressed "Skip for now" must
   // not be bounced back into the flow forever. See hasCompletedOnboarding.
@@ -55,9 +102,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (!isMounted) return;
 
-      setUser(fbUser);
-
       if (!fbUser) {
+        setUser(null);
         setProfile(null);
         setLoading(false);
         return;
@@ -65,7 +111,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       try {
         const ref = doc(db, "users", fbUser.uid);
-        const snap = await getDoc(ref);
+        const snap = await getDoc(ref).catch(() => null);
+
+        // Email-verification gate: a NEW account (no profile yet) must confirm its email before it
+        // counts as signed in. We don't create a profile, categories or any data for it, and we treat
+        // it as signed out. Existing accounts with a profile are grandfathered (see emailVerification.ts).
+        if (shouldBlockUnverified({ emailVerified: fbUser.emailVerified, hasProfile: !!snap?.exists() })) {
+          if (isMounted) { setUser(null); setProfile(null); setLoading(false); }
+          if (flowRef.current === 0) await fbSignOut(auth).catch(() => {});
+          return;
+        }
+
+        setUser(fbUser);
+        if (!snap) throw new Error("Could not load profile");
 
         if (!snap.exists()) {
           // First sign-in: create the profile document. Role is 'admin' only
@@ -115,7 +173,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = React.useCallback(async (email: string, password: string) => {
-    await signInWithEmailAndPassword(auth, email, password);
+    flowRef.current++;
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      if (!cred.user.emailVerified) {
+        const snap = await getDoc(doc(db, "users", cred.user.uid)).catch(() => null);
+        if (shouldBlockUnverified({ emailVerified: false, hasProfile: !!snap?.exists() })) {
+          await fbSignOut(auth);
+          throw new EmailNotVerifiedError();
+        }
+      }
+    } finally {
+      flowRef.current--;
+    }
   }, []);
 
   /** Google sign-in. Reuses the exact same profile-creation path as
@@ -151,8 +221,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = React.useCallback(async (email: string, password: string, displayName: string) => {
-    const cred = await createUserWithEmailAndPassword(auth, email, password);
-    await updateProfile(cred.user, { displayName });
+    flowRef.current++;
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      let emailSent = true;
+      try {
+        await updateProfile(cred.user, { displayName });
+        await sendVerificationEmail(cred.user);
+      } catch {
+        // The account exists; only the email failed (e.g. throttled). The verify screen offers Resend.
+        emailSent = false;
+      }
+      // Never leave a brand-new, unverified account signed in.
+      await fbSignOut(auth);
+      return { emailSent };
+    } finally {
+      flowRef.current--;
+    }
+  }, []);
+
+  const resendVerification = React.useCallback(async (email: string, password: string) => {
+    flowRef.current++;
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      if (cred.user.emailVerified) return "already-verified" as const; // stay signed in; the listener takes over
+      try {
+        await sendVerificationEmail(cred.user);
+      } finally {
+        await fbSignOut(auth);
+      }
+      return "sent" as const;
+    } finally {
+      flowRef.current--;
+    }
+  }, []);
+
+  const sendVerificationToCurrentUser = React.useCallback(async () => {
+    if (auth.currentUser && !auth.currentUser.emailVerified) await sendVerificationEmail(auth.currentUser);
+  }, []);
+
+  const refreshEmailVerified = React.useCallback(async () => {
+    const current = auth.currentUser;
+    if (!current) return false;
+    await current.reload();
+    setVerifiedTick((n) => n + 1);
+    return current.emailVerified;
+  }, []);
+
+  /** Re-authenticates with the current password first (Firebase requires a recent sign-in to
+   *  change a password), then sets the new one. */
+  const changePassword = React.useCallback(async (currentPassword: string, newPassword: string) => {
+    const current = auth.currentUser;
+    if (!current || !current.email) throw Object.assign(new Error("Not signed in"), { code: "auth/requires-recent-login" });
+    await reauthenticateWithCredential(current, EmailAuthProvider.credential(current.email, currentPassword));
+    await updatePassword(current, newPassword);
   }, []);
 
   /** Marks onboarding done — called both on "Continue" (interests saved) and
@@ -178,6 +300,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     resetPassword,
     register,
+    resendVerification,
+    emailVerified: !!user?.emailVerified,
+    hasPasswordProvider: !!user?.providerData.some((p) => p.providerId === "password"),
+    sendVerificationToCurrentUser,
+    refreshEmailVerified,
+    changePassword,
     completeOnboarding,
   };
 

@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, Compass, Download, FileVideo, ListVideo, Menu, RotateCcw, Search, LogOut, Settings, ShieldCheck, User as UserIcon } from "lucide-react";
+import { Bell, Compass, Download, FileVideo, KeyRound, ListVideo, Menu, RotateCcw, Search, LogOut, Settings, ShieldCheck, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -24,11 +24,13 @@ import {
 import { formatUnreadBadge, recentNotifications, relativeTimeLabel } from "@/lib/notificationUtils";
 import { cn } from "@/lib/utils";
 import { useTour } from "@/components/tour/TourProvider";
+import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";
 import { tourForPath } from "@/lib/tour/tours";
 import type { AppNotification, PersonalPlaylist } from "@/types";
 
 export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; onSearch?: (q: string) => void }) {
-  const { user, profile, logout, isAdmin } = useAuth();
+  const { user, profile, logout, isAdmin, hasPasswordProvider } = useAuth();
+  const [changePasswordOpen, setChangePasswordOpen] = React.useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const { startTour, resetAll } = useTour();
@@ -310,12 +312,19 @@ export function Header({ onMenuClick, onSearch }: { onMenuClick?: () => void; on
               <RotateCcw className="h-4 w-4" /> Replay all tours
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            {/* Only email+password accounts have a password to change (Google-only accounts do not). */}
+            {hasPasswordProvider && (
+              <DropdownMenuItem onSelect={() => { setTimeout(() => setChangePasswordOpen(true), 0); }}>
+                <KeyRound className="h-4 w-4" /> Change password
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={handleLogout}>
               <LogOut className="h-4 w-4" /> Log out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {hasPasswordProvider && <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />}
       {user?.uid && <QuickAddVideoDialog
         ownerId={user.uid}
         playlists={playlists}

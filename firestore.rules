@@ -91,7 +91,10 @@ service cloud.firestore {
       // Users may create only their own student profile. Admin profiles must
       // be provisioned server-side; allowing a client to choose "admin" here
       // would turn a crafted first sign-in write into privilege escalation.
+      // A profile is only created once the email is verified (Google accounts always are), so a
+      // brand-new email/password sign-up cannot start using the app before confirming its address.
       allow create: if isSelf(uid) &&
+        request.auth.token.email_verified == true &&
         request.resource.data.role == 'student' &&
         request.resource.data.status in ['active', 'disabled'];
       // Users may update their own profile EXCEPT role/status (privilege
