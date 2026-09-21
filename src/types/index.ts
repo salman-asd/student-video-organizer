@@ -394,7 +394,7 @@ export type PersonalPlaylistSortMode =
   | "title-asc"
   | "title-desc"
   | "title-natural"
-  | "lesson-part-page"
+  // | "lesson-part-page"
   | "advanced-keywords"
   | "watched-first"
   | "unwatched-first"

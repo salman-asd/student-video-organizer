@@ -66,7 +66,7 @@ const PERSONAL_PLAYLIST_SORT_LABELS: Record<PersonalPlaylistSortMode, string> = 
   "title-asc": "Title A-Z",
   "title-desc": "Title Z-A",
   "title-natural": "Title (numeric-aware)",
-  "lesson-part-page": "Lesson → Part → Page",
+  // "lesson-part-page": "Lesson → Part → Page",
   "advanced-keywords": "Advanced (custom keywords)",
   "watched-first": "Watched first",
   "unwatched-first": "Unwatched first",
@@ -242,7 +242,7 @@ function PersonalPlaylistEditorContent() {
       return diff || (a.order ?? 0) - (b.order ?? 0);
     });
     if (sortMode === "title-natural") return source.sort((a, b) => naturalTitleCollator.compare(a.title, b.title));
-    if (sortMode === "lesson-part-page") return source.sort((a, b) => compareLessonPartPage(a.title, b.title));
+    // if (sortMode === "lesson-part-page") return source.sort((a, b) => compareLessonPartPage(a.title, b.title));
     if (sortMode === "advanced-keywords") return source.sort((a, b) => compareByKeywords(a.title, b.title, sortKeywords));
     if (sortMode === "duration") return source.sort((a, b) => (b.durationSeconds ?? 0) - (a.durationSeconds ?? 0));
     return source.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
